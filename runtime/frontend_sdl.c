@@ -15,7 +15,7 @@
  *   F8 = actual size (the screens as big as a real DS Lite's)
  *   F12 = screenshot (dqix-shot-N.bmp)
  *   F10 = bug report (reports/<date-time>/: screenshot, inputs, saves, log)
- *   Esc = leave fullscreen, or quit (the save file is always up to date)
+ *   Esc = leave fullscreen, or quit (it asks first; confirm_quit in settings.ini)
  * On Windows every setting is also in the menu bar (menu_win32 below).
  * A game controller works too (Nintendo layout by position: right face button = A). */
 #define SDL_MAIN_HANDLED
@@ -338,6 +338,7 @@ static char g_wfc_server[64] = "builtin";       /* a key above or a DNS address 
 static char g_player_name[32] = "";              /* sessions: what friends see */
 static int g_session_port = SESSION_PORT;
 static int g_update_auto = 1;                    /* look for a new stable version at start */
+static int g_confirm_quit = 1;                   /* Esc / closing the window asks first */
 static char g_update_skip[32];                   /* ...but not this one (the player said so) */
 static int g_net_want = 1;                     /* the menu's "connect" check: on for a new install (settings.ini keeps each player's choice) */
 static const char* wfc_dns(void) {
@@ -387,6 +388,7 @@ static void settings_load(void) {
             continue;
         }
         if (!strcmp(key, "update_check")) { g_update_auto = atoi(val) != 0; continue; }
+        if (!strcmp(key, "confirm_quit")) { g_confirm_quit = atoi(val) != 0; continue; }
         if (!strcmp(key, "update_skip")) { snprintf(g_update_skip, sizeof g_update_skip, "%s", val); continue; }
         if (!strcmp(key, "session_port")) { int v = atoi(val); if (v > 0 && v < 65536) g_session_port = v; continue; }
         if (!strcmp(key, "session_consoles")) { if (!strcmp(val, "processes")) { static char e[] = "DQIX_PROCESSES=1"; putenv(e); } continue; }
@@ -510,6 +512,8 @@ static void settings_save(void) {
     fprintf(f, "player_name = %s\n", g_player_name);
     fprintf(f, "# updates: look for a new stable version when the game starts (Help menu); a version not to offer again\n");
     fprintf(f, "update_check = %d\n", g_update_auto);
+    fprintf(f, "# Esc or closing the window asks before quitting (0: quits at once)\n");
+    fprintf(f, "confirm_quit = %d\n", g_confirm_quit);
     fprintf(f, "update_skip = %s\n", g_update_skip[0] ? g_update_skip : "-");
     fprintf(f, "session_port = %d\n", g_session_port);
     fprintf(f, "# how your friends' DSes run on this PC: thread (one thread, the usual) or processes (if thread misbehaves)\n");
@@ -1221,7 +1225,7 @@ static const char* CONTROLS_TEXT =
     "Widescreen's small screen: K corner (right stick click)   I size   O opacity (left stick click)\n"
     "Tab (hold) fast forward   P pause   Ctrl+R reset (controller: hold Start+Select+L+R)   - / = volume\n"
     "F5 Classic / Enhanced   F4 3D resolution   F6 DS Lite screen   F7 DS Lite console   F8 actual size   F3 window size\n"
-    "F11 or Alt+Enter fullscreen (mouse at the top: menu bar)   F12 screenshot   F10 bug report   Esc leave fullscreen / quit\n"
+    "F11 or Alt+Enter fullscreen (mouse at the top: menu bar)   F12 screenshot   F10 bug report   Esc leave fullscreen / quit (asks first)\n"
     "In fullscreen, double-click outside the touch screen to go back to the window.";
 
 /* A message box whose long lines are wrapped (the system boxes size themselves
@@ -1458,6 +1462,25 @@ static int choose(const char* title, const char* text, const char* const* button
     int out = cancel;
     if (SDL_ShowMessageBox(&d, &out) != 0 || out < 0) return cancel;
     return out;
+}
+
+/* Esc, the window's X or Alt+F4: ask first (an accidental Esc lost hours of
+ * play). "Keep playing" is the default, so Enter doesn't quit either. */
+static void quit_ask(void) {
+    if (!g_confirm_quit || getenv("DQIX_NO_CONFIRM")) exit(0);
+    static int asking;
+    if (asking) return;
+    asking = 1;
+    static const char* b[2] = { "Quit", "Keep playing" };
+    static const char TEXT[] = "Quit Dragon Quest IX?\n\nAnything since you last saved in the game will be lost.";
+    int dont = 0;
+    int r = choice_box(g_win, "Quit", TEXT, b, 2, 1, 1, "Don't ask again", &dont);
+    if (r < 0) r = choose("Quit", TEXT, b, 2, 1, 1);
+    asking = 0;
+    g_next_frame = SDL_GetPerformanceCounter();                 /* the game waited: don't race to catch up */
+    if (r != 0) return;
+    if (dont) { g_confirm_quit = 0; settings_save(); }
+    exit(0);
 }
 
 static void update_go(const char* branch, const char* version) {
@@ -1723,7 +1746,7 @@ static void do_action(int id) {
         g_next_frame = SDL_GetPerformanceCounter();                /* the game waited while you typed */
         break;
     }
-    case MI_EXIT: exit(0);
+    case MI_EXIT: quit_ask(); break;
     case MI_CLASSIC: case MI_ENHANCED:
         if (!g_gl) break;
         g_classic = id == MI_CLASSIC; apply_mode(); g_fps_t0 = 0;
@@ -1826,8 +1849,23 @@ static void do_action(int id) {
     case MI_FULL:
         g_fullscreen = !g_fullscreen;
         g_menu_peek = 0;
-        menu_show(!g_fullscreen);
-        SDL_SetWindowFullscreen(g_win, g_fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
+        menu_strip(0);
+        if (g_fullscreen) { menu_show(0); SDL_SetWindowFullscreen(g_win, SDL_WINDOW_FULLSCREEN_DESKTOP); }
+        else {
+            /* back to a window: its frame (title bar, borders) first, then the
+             * menu bar, then its size and a place on the screen (GitHub #11:
+             * it came back frameless, stuck in the corner) */
+            SDL_SetWindowFullscreen(g_win, 0);
+            SDL_SetWindowBordered(g_win, SDL_TRUE);
+            SDL_SetWindowResizable(g_win, SDL_TRUE);
+            window_fix_frame(g_win);
+            menu_show(1);
+            {   int x, y; SDL_GetWindowPosition(g_win, &x, &y);
+                int d = SDL_GetWindowDisplayIndex(g_win); SDL_Rect r;
+                if (d >= 0 && SDL_GetDisplayUsableBounds(d, &r) == 0 && x <= r.x + 1 && y <= r.y + 1)
+                    SDL_SetWindowPosition(g_win, SDL_WINDOWPOS_CENTERED_DISPLAY(d), SDL_WINDOWPOS_CENTERED_DISPLAY(d));
+            }
+        }
         relayout = !g_fullscreen;
         break;
     case MI_CONTROLS: info_box(SDL_MESSAGEBOX_INFORMATION, "Controls", CONTROLS_TEXT, g_win); break;
@@ -1902,6 +1940,8 @@ static void capture_done(const char* what) {
     if (what) notice("%s: %s", g_ctl[g_cap_action].name, what); else notice("Not changed");
     g_cap_action = -1;
     controls_save();
+    SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "0");
+    controls_window_capture(0, NULL);
     controls_window_refresh();
 }
 static void capture_key(SDL_Scancode k, Uint16 mod) {
@@ -1922,6 +1962,12 @@ static void capture_pad(int pad) {
     capture_done(n);
 }
 static void capture_wait(void) {                                /* the game waits meanwhile */
+    {   char pr[160];
+        snprintf(pr, sizeof pr, g_cap_what == 2 ? "Press a controller button for: %s   (Esc cancels)" : "Press a key for: %s   (Esc cancels)", g_ctl[g_cap_action].name);
+        /* the controller's buttons come through even if the dialog keeps the focus */
+        SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
+        controls_window_capture(1, pr);
+    }
     SDL_RaiseWindow(g_win);
     while (g_cap_action >= 0) {
         snprintf(g_notice, sizeof g_notice, g_cap_what == 2 ? "Press a controller button for: %s (Esc cancels)" : "Press a key for: %s (Esc cancels)", g_ctl[g_cap_action].name);
@@ -1939,13 +1985,13 @@ static void handle_events(void) {
         int mi = menu_command(&e);
         if (mi) { do_action(mi); continue; }
         switch (e.type) {
-        case SDL_QUIT: exit(0);
+        case SDL_QUIT: quit_ask(); break;
         case SDL_KEYDOWN: {
             if (e.key.repeat || !g_win) break;
             SDL_Scancode k = e.key.keysym.scancode;
             if (g_cap_action >= 0) { capture_key(k, e.key.keysym.mod); break; }   /* Game > Controls: the new key */
             int in2 = g_win2 && e.key.windowID == SDL_GetWindowID(g_win2);   /* typed in the second window */
-            if (k == SDL_SCANCODE_ESCAPE) { if (in2 && g_win2_full) second_window_fullscreen(); else if (g_fullscreen) do_action(MI_FULL); else exit(0); break; }
+            if (k == SDL_SCANCODE_ESCAPE) { if (in2 && g_win2_full) second_window_fullscreen(); else if (g_fullscreen) do_action(MI_FULL); else quit_ask(); break; }
             if (k == SDL_SCANCODE_RETURN && (e.key.keysym.mod & KMOD_ALT)) { if (in2) { second_window_fullscreen(); settings_save(); } else do_action(MI_FULL); break; }
             int a = controls_key_action(k, e.key.keysym.mod);
             if (a == CA_FULL && in2) { second_window_fullscreen(); settings_save(); break; }
@@ -1977,14 +2023,14 @@ static void handle_events(void) {
                 else if (peek2 && e.motion.y > 80) { peek2 = 0; menu_show_second(0); }
             }
             if (g_fullscreen && e.motion.windowID == SDL_GetWindowID(g_win)) {
-                if (!g_menu_peek && e.motion.y <= 1) { g_menu_peek = 1; menu_show(1); }
-                else if (g_menu_peek && e.motion.y > 80) { g_menu_peek = 0; menu_show(0); }
+                if (!g_menu_peek && e.motion.y <= 1) { g_menu_peek = 1; menu_strip(1); }   /* over the picture, which keeps its size */
+                else if (g_menu_peek && e.motion.y > 80) { g_menu_peek = 0; menu_strip(0); }
             }
             break;
         case SDL_WINDOWEVENT:
             if (e.window.event == SDL_WINDOWEVENT_CLOSE) {           /* two windows: closing the second one goes back to one */
                 if (g_win2 && e.window.windowID == SDL_GetWindowID(g_win2)) do_action(MI_STACKED);
-                else exit(0);
+                else quit_ask();
                 break;
             }
             if (g_win2 && e.window.windowID == SDL_GetWindowID(g_win2)) {
@@ -2040,7 +2086,10 @@ void frontend_frame(void) {
                 if (held_for >= 60) { held_for = 0; restart_with(NULL); }
             } else if (held_for) { if (held_for < 60) notice("Reset cancelled"); held_for = 0; }
             int ca, cw;                                           /* Game > Controls asked for a new key */
-            if (controls_window_request(&ca, &cw) && ca >= 0 && ca < CA_N) { g_cap_action = ca; g_cap_what = cw; capture_wait(); }
+            if (controls_window_request(&ca, &cw) && ca >= 0 && ca < CA_N) {
+                if (cw == 2 && !g_pad) notice("No controller found: connect one, then try again");
+                else { g_cap_action = ca; g_cap_what = cw; capture_wait(); }
+            }
         }
         int mx, my;
         Uint32 mb = SDL_GetMouseState(&mx, &my);

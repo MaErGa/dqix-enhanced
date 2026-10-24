@@ -25,6 +25,12 @@ enum {
 /* shell_names: the console colours, in order (MI_SHELLC0 + i) */
 void menu_init(SDL_Window* win, const char* const* shell_names, int n_shells);
 void menu_show(int on);                       /* hidden in fullscreen */
+/* Fullscreen: the menu bar shown in a strip of its own over the top of the
+ * screen (on the window itself it made Windows shrink the picture). */
+void menu_strip(int on);
+/* After leaving fullscreen: make sure the window has its frame back (title
+ * bar, borders: it could come back as a bare popup stuck in the corner). */
+void window_fix_frame(SDL_Window* win);
 /* the second window (two windows): a bar with only Fullscreen (MI_FULL2) */
 void menu_init_second(SDL_Window* win);
 void menu_show_second(int on);
@@ -72,8 +78,11 @@ void volume_window_refresh(void);                   /* the values changed elsewh
 /* Game > Controls...: the list of actions and their keys (controls.h). When the
  * player asks to change one, controls_window_request() reports it once
  * (what: 0 key, 1 second key, 2 controller button); the game then waits for
- * the key in its own window and calls controls_window_refresh(). */
+ * the key in its own window (controls_window_capture(1, prompt): the game's
+ * window gets the keyboard, the dialog says what to press) and afterwards
+ * calls controls_window_capture(0, NULL) and controls_window_refresh(). */
 void controls_window_open(SDL_Window* win);
 int controls_window_request(int* action, int* what);
-void controls_window_refresh(void);                    /* 0 nothing, 1 start, 2 cancel (each reported once) */
+void controls_window_capture(int on, const char* prompt);
+void controls_window_refresh(void);
 void session_window_close(void);

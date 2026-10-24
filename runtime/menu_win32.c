@@ -158,7 +158,65 @@ void menu_init(SDL_Window* win, const char* const* shell_names, int n_shells) {
 }
 
 void menu_show(int on) {
-    if (g_hwnd) SetMenu(g_hwnd, on ? g_bar : NULL);
+    if (!g_hwnd) return;
+    if (on) menu_strip(0);                                       /* a menu belongs to one window at a time */
+    SetMenu(g_hwnd, on ? g_bar : NULL);
+}
+
+static HWND g_strip;
+static LRESULT CALLBACK strip_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
+    switch (msg) {
+    case WM_COMMAND:                                             /* the game's window handles the menu's commands */
+        if (g_hwnd && HIWORD(wp) == 0) PostMessageW(g_hwnd, WM_COMMAND, wp, lp);
+        return 0;
+    case WM_MOUSEACTIVATE: return MA_NOACTIVATE;                 /* the game keeps the keyboard */
+    case WM_CLOSE: return 0;
+    }
+    return DefWindowProcW(h, msg, wp, lp);
+}
+void menu_strip(int on) {
+    if (!g_hwnd || !g_bar) return;
+    if (!on) {
+        if (g_strip && IsWindowVisible(g_strip)) { ShowWindow(g_strip, SW_HIDE); SetMenu(g_strip, NULL); }
+        return;
+    }
+    if (!g_strip) {
+        WNDCLASSW wc; memset(&wc, 0, sizeof wc);
+        wc.lpfnWndProc = strip_proc; wc.hInstance = GetModuleHandleW(NULL);
+        wc.lpszClassName = L"DQIXMenuStrip"; wc.hbrBackground = (HBRUSH)(COLOR_MENUBAR + 1);
+        wc.hCursor = LoadCursorW(NULL, (LPCWSTR)IDC_ARROW);
+        RegisterClassW(&wc);
+        g_strip = CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, wc.lpszClassName, L"", WS_POPUP, 0, 0, 10, 10, g_hwnd, NULL, wc.hInstance, NULL);
+        if (!g_strip) return;
+    }
+    SetMenu(g_hwnd, NULL);
+    SetMenu(g_strip, g_bar);
+    HMONITOR mon = MonitorFromWindow(g_hwnd, MONITOR_DEFAULTTONEAREST);
+    MONITORINFO mi; mi.cbSize = sizeof mi;
+    if (!GetMonitorInfoW(mon, &mi)) return;
+    int w = mi.rcMonitor.right - mi.rcMonitor.left;
+    /* as tall as the menu bar (at this monitor's scale) plus a pixel */
+    SetWindowPos(g_strip, HWND_TOP, mi.rcMonitor.left, mi.rcMonitor.top, w, 40, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    MENUBARINFO mb; mb.cbSize = sizeof mb;
+    if (GetMenuBarInfo(g_strip, OBJID_MENU, 0, &mb)) {
+        RECT wr; GetWindowRect(g_strip, &wr);
+        int h = mb.rcBar.bottom - wr.top + 1;
+        if (h > 4 && h < 200) SetWindowPos(g_strip, HWND_TOP, mi.rcMonitor.left, mi.rcMonitor.top, w, h, SWP_NOACTIVATE);
+    }
+    DrawMenuBar(g_strip);
+}
+
+void window_fix_frame(SDL_Window* win) {
+    SDL_SysWMinfo info;
+    SDL_VERSION(&info.version);
+    if (!win || !SDL_GetWindowWMInfo(win, &info) || info.subsystem != SDL_SYSWM_WINDOWS) return;
+    HWND h = info.info.win.window;
+    LONG_PTR st = GetWindowLongPtrW(h, GWL_STYLE);
+    LONG_PTR want = (st & ~(LONG_PTR)WS_POPUP) | WS_OVERLAPPEDWINDOW;
+    if (st != want) {
+        SetWindowLongPtrW(h, GWL_STYLE, want);
+        SetWindowPos(h, NULL, 0, 0, 0, 0, SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+    }
 }
 
 /* The second window (two windows): a bar with one command, fullscreen. */
@@ -602,7 +660,7 @@ void volume_window_refresh(void) { if (g_vol) { SetScrollPos(GetDlgItem(g_vol, I
 #define ID_CTL_CLEAR 4104
 #define ID_CTL_DEFAULTS 4105
 #define ID_CTL_STATUS 4106
-static HWND g_ctlw;
+static HWND g_ctlw, g_ctl_owner;          /* the dialog, and the game's window */
 static int g_ctl_req = -1, g_ctl_req_what;
 static void ctl_fill(HWND h) {
     HWND l = GetDlgItem(h, ID_CTL_LIST);
@@ -666,7 +724,7 @@ void controls_window_open(SDL_Window* win) {
     memset(buf, 0, sizeof buf);
     DLGTEMPLATE* d = (DLGTEMPLATE*)align4(buf);
     d->style = DS_MODALFRAME | DS_CENTER | DS_SETFONT | WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_VISIBLE;
-    d->cdit = 10; d->cx = 400; d->cy = 290;
+    d->cdit = 11; d->cx = 400; d->cy = 290;
     WORD* p = (WORD*)(d + 1);
     *p++ = 0; *p++ = 0;
     p = put_str(p, L"Controls");
@@ -681,7 +739,9 @@ void controls_window_open(SDL_Window* win) {
     p = put_item(p, WS_TABSTOP | BS_PUSHBUTTON, 170, 241, 92, 15, ID_CTL_PAD, 0x80, L"Controller button...");
     p = put_item(p, WS_TABSTOP | BS_PUSHBUTTON, 266, 241, 54, 15, ID_CTL_CLEAR, 0x80, L"Clear");
     p = put_item(p, WS_TABSTOP | BS_PUSHBUTTON, 8, 266, 100, 15, ID_CTL_DEFAULTS, 0x80, L"Restore defaults");
+    p = put_item(p, SS_LEFT, 112, 269, 222, 10, ID_CTL_STATUS, 0x82, L"");
     p = put_item(p, WS_TABSTOP | BS_DEFPUSHBUTTON, 338, 266, 54, 15, IDOK, 0x80, L"Close");
+    g_ctl_owner = info.info.win.window;
     g_ctlw = CreateDialogIndirectParamW(GetModuleHandleW(NULL), d, info.info.win.window, ctl_proc, 0);
 }
 int controls_window_request(int* action, int* what) {
@@ -689,7 +749,28 @@ int controls_window_request(int* action, int* what) {
     *action = g_ctl_req; *what = g_ctl_req_what; g_ctl_req = -1;
     return 1;
 }
-void controls_window_refresh(void) { if (g_ctlw) { ctl_fill(g_ctlw); SetForegroundWindow(g_ctlw); } }
+/* While the game waits for the new key, the keyboard has to be the game
+ * window's: Windows doesn't always let SDL_RaiseWindow take it from this
+ * dialog (the key then went to the dialog's list and the game waited for
+ * ever). SetFocus on a window of this thread always works. The dialog is
+ * disabled meanwhile (no stray clicks) and says what to press. */
+void controls_window_capture(int on, const char* prompt) {
+    if (!g_ctlw) return;
+    if (on) {
+        wchar_t w[200]; MultiByteToWideChar(CP_UTF8, 0, prompt ? prompt : "", -1, w, 200); w[199] = 0;
+        SetDlgItemTextW(g_ctlw, ID_CTL_STATUS, w);
+        EnableWindow(g_ctlw, FALSE);
+        if (g_ctl_owner) { SetForegroundWindow(g_ctl_owner); SetActiveWindow(g_ctl_owner); SetFocus(g_ctl_owner); }
+    } else {
+        SetDlgItemTextW(g_ctlw, ID_CTL_STATUS, L"");
+        EnableWindow(g_ctlw, TRUE);
+    }
+}
+void controls_window_refresh(void) {
+    if (!g_ctlw) return;
+    ctl_fill(g_ctlw);
+    if (IsWindowEnabled(g_ctlw)) { SetForegroundWindow(g_ctlw); SetFocus(GetDlgItem(g_ctlw, ID_CTL_LIST)); }
+}
 
 int session_window_action(void) { int a = g_ses_action; g_ses_action = 0; return a; }
 
@@ -705,6 +786,8 @@ char* ask_text(SDL_Window* win, const char* title, const char* prompt) { (void)w
 float display_mm_per_pixel(SDL_Window* win) { (void)win; return 0; }
 void menu_init(SDL_Window* win, const char* const* shell_names, int n_shells) { (void)win; (void)shell_names; (void)n_shells; }
 void menu_show(int on) { (void)on; }
+void menu_strip(int on) { (void)on; }
+void window_fix_frame(SDL_Window* win) { (void)win; }
 void menu_init_second(SDL_Window* win) { (void)win; }
 void menu_show_second(int on) { (void)on; }
 void menu_check(int id, int on) { (void)id; (void)on; }
@@ -715,6 +798,7 @@ void volume_window_open(SDL_Window* win, int* volume, int* mute) { (void)win; (v
 void volume_window_refresh(void) {}
 void controls_window_open(SDL_Window* win) { (void)win; }
 int controls_window_request(int* action, int* what) { (void)action; (void)what; return 0; }
+void controls_window_capture(int on, const char* prompt) { (void)on; (void)prompt; }
 void controls_window_refresh(void) {}
 void session_window_update(const SessionWindow* w) { (void)w; }
 int session_window_action(void) { return 0; }
