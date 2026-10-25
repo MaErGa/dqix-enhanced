@@ -75,7 +75,7 @@ static int g_small_size = 1;                                      /* ...0 small,
 static int g_small_hide;                                          /* widescreen: no small screen (left trigger / U) */
 static int g_peek;                                                /* widescreen: the other screen big while the swap button is held */
 static int g_single;                                              /* one screen only (the bottom one, or the top one swapped) */
-static int g_hud = 1;                                             /* widescreen battles: the party's panels and the commands over the 3D (hud_update) */
+static int g_hud = 0;                                             /* widescreen battles: the party's panels and the commands over the 3D (hud_update) */
 static int g_hud_n, g_hud_band[8][2];                             /* ...the panels found on the commands screen: first row, end row */
 static int g_hud_win[4];                                          /* ...or a window alone there (experience, level up): x, y, w, h (w 0: none) */
 static int g_volume = 100, g_mute;                                /* Game > Volume */
@@ -592,7 +592,7 @@ static void settings_save(void) {
     fprintf(f, "hd_text_shadows = %d\n", g_tx_shadows);
     fprintf(f, "# widescreen: the small screen (map, battle commands) in a window of its own: 0 or 1\n");
     fprintf(f, "widescreen_popout = %d\n", g_wide_pop);
-    fprintf(f, "# widescreen battles: the party's panels along the top and the commands in the bottom left, over the 3D: 0 or 1\n");
+    fprintf(f, "# widescreen battles (experimental): the party's panels and the commands stacked in the bottom left, over the 3D: 0 or 1\n");
     fprintf(f, "widescreen_battle_hud = %d\n", g_hud);
     fprintf(f, "# window size: 1 to 8 times the DS screens (F3)\n");
     fprintf(f, "window_scale = %d\n", g_scale);

@@ -157,7 +157,7 @@ void menu_init(SDL_Window* win, const char* const* shell_names, int n_shells) {
     item(modern, MI_CORNER, L"Top screen in the &corner (the field as on the DS)");
     item(modern, MI_POPOUT, L"Widescreen: the small screen in its own &window (a clean field)");
     item(modern, MI_SCENE_BARS, L"Widescreen: &black sides in this place (remembered)");
-    item(modern, MI_HUD, L"Widescreen: battle &HUD over the 3D (party along the top, commands bottom left)");
+    item(modern, MI_HUD, L"Widescreen: battle &HUD over the 3D (experimental: the party's panels in the bottom left)");
     sep(modern);
     item(modern, MI_MODERN_HELP, L"&What is this?");
     HMENU lang = sub(g_bar, L"&Language");
