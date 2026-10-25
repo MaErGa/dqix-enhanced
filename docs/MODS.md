@@ -26,7 +26,9 @@ a pack's pictures come first.
 
 OGG (Vorbis) or FLAC recordings in the `music` folder play instead of the
 game's songs. Each is named after the song it replaces: `BG_012.ogg`,
-`ME_003.flac`.
+`ME_003.flac`. A title after the name is fine (`BG_012 - Town.flac`), and
+so is `BG_012.ogg.flac` (what renaming gives when Windows hides
+extensions): the file's contents say whether it is OGG or FLAC.
 
 - **Mods > Open the music folder** opens it and writes `songs.txt`, the
   list of every song (`BG_` songs, `ME_` jingles).

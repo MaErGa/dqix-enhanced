@@ -21,6 +21,7 @@
 #include <string.h>
 #include <stdint.h>
 #include <math.h>
+#include <dirent.h>
 #include "nds.h"
 
 #define STB_VORBIS_NO_PUSHDATA_API
@@ -224,8 +225,9 @@ static void flac_meta(void* u, drflac_metadata* m) {
 static int stream_open(Stream* s, const char* path, int song) {
     memset(s, 0, sizeof *s);
     s->song = song;
-    size_t l = strlen(path);
-    if (l > 5 && (prefix(path + l - 5, ".FLAC"))) {
+    char magic[4] = { 0 };                                       /* by what the file is, not its name */
+    { FILE* f = fopen(path, "rb"); if (!f) return 0; if (fread(magic, 1, 4, f) != 4) magic[0] = 0; fclose(f); }
+    if (!memcmp(magic, "fLaC", 4) || (!memcmp(magic, "ID3", 3) && strstr(path, ".flac"))) {
         s->f = drflac_open_file_with_metadata(path, flac_meta, s, NULL);
         if (!s->f) return 0;
         s->ch = s->f->channels; s->rate = s->f->sampleRate;
@@ -395,20 +397,34 @@ void music_mix(int32_t* l, int32_t* r) {
 }
 
 /* ---------------------------------------------------------------- the pack */
-static int file_ok(const char* p) { FILE* f = fopen(p, "rb"); if (!f) return 0; fclose(f); return 1; }
+
+/* the pack's file for a song: named after it (BG_012.ogg), and also BG_012.ogg.flac
+ * (renamed with Windows hiding the extension) or "BG_012 - Title.flac". */
+static int name_match(const char* file, const char* song) {
+    size_t n = strlen(song), l = strlen(file);
+    for (size_t i = 0; i < n; i++) { char a = file[i], b = song[i]; if (a >= 'a' && a <= 'z') a -= 32; if (b >= 'a' && b <= 'z') b -= 32; if (!a || a != b) return 0; }
+    char c = file[n];
+    if ((c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')) return 0;   /* BG_01 is not BG_012 */
+    return (l > 4 && prefix(file + l - 4, ".OGG")) || (l > 5 && prefix(file + l - 5, ".FLAC"));
+}
 
 int music_reload(void) {
     scan_rom();
-    int n = 0;
-    for (int i = 0; i < g_nsongs; i++) {
-        Song* g = &g_songs[i]; g->file[0] = 0;
-        static const char* ext[] = { ".ogg", ".flac", ".OGG", ".FLAC" };
-        for (int e = 0; e < 4 && !g->file[0]; e++) {
-            char p[400]; snprintf(p, sizeof p, "%s/%s%s", g_dir, g->name, ext[e]);
-            if (file_ok(p)) snprintf(g->file, sizeof g->file, "%s", p);
+    for (int i = 0; i < g_nsongs; i++) g_songs[i].file[0] = 0;
+    DIR* d = opendir(g_dir);
+    struct dirent* e;
+    while (d && (e = readdir(d))) {
+        for (int i = 0; i < g_nsongs; i++) {
+            Song* g = &g_songs[i];
+            if (!name_match(e->d_name, g->name)) continue;
+            char p[400]; snprintf(p, sizeof p, "%s/%s", g_dir, e->d_name);
+            int exact = strlen(e->d_name) <= strlen(g->name) + 5;      /* BG_012.ogg / .flac first */
+            if (!g->file[0] || exact) snprintf(g->file, sizeof g->file, "%s", p);
         }
-        n += g->file[0] != 0;
     }
+    if (d) closedir(d);
+    int n = 0;
+    for (int i = 0; i < g_nsongs; i++) n += g_songs[i].file[0] != 0;
     unmute_where_no_file(!g_on);
     for (int i = 0; i < NSTREAM; i++) if (g_st[i].on && (!g_on || !g_songs[g_st[i].song].file[0])) stream_close(&g_st[i]);
     return n;
@@ -436,7 +452,7 @@ int music_write_list(const char* path) {
     FILE* f = fopen(path, "w");
     if (!f) return 0;
     fprintf(f, "# The game's songs. Put a recording in this folder named after one to play it instead:\n"
-               "# BG_012.ogg or BG_012.flac. Loop points: the tags LOOPSTART and LOOPLENGTH (or LOOPEND), in samples.\n"
+               "# BG_012.ogg or BG_012.flac (a title after the name is fine: BG_012 - Town.flac). Loop points: the tags LOOPSTART and LOOPLENGTH (or LOOPEND), in samples.\n"
                "# Without them, songs (BG_) loop the whole file and jingles (ME_) play once.\n"
                "# Mods > Music > Show each song's name tells you which one is playing.\n\n");
     for (int i = 0; i < g_nsongs; i++)
