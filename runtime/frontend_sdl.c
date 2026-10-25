@@ -1202,8 +1202,9 @@ static void auto_scale(void) {
     if (++frames >= 30) { gl_render_set_scale(want); pending = frames = 0; }
 }
 
-static void present_gl(void) {
-    auto_scale();
+/* What the game itself depends on, worked out each frame even when nothing is
+ * shown (DQIX_PRESENT_FROM): the widescreen width, and so what counts as in view. */
+static void present_gl_state(void) {
     {   int r = g_wide && !g_classic ? scene_rule() : 0;
         g_gl_bars = r == 'b';
         g_scene_stack = r == 's';
@@ -1217,6 +1218,11 @@ static void present_gl(void) {
         if (lg && g_frame % 60 == 0) fprintf(stderr, "box: frame %llu tests %u in %u widened %u\n", (unsigned long long)g_frame, g_box_tests, g_box_in, g_box_widened);
         if (lg && g_frame % 60 == 0) g_box_tests = g_box_in = g_box_widened = 0;
     }
+}
+
+static void present_gl(void) {
+    auto_scale();
+    present_gl_state();
     uint16_t pow; memcpy(&pow, &g_io[0x304], 2);
     gl_compose((pow >> 15) & 1, pow & 1);
     wide_update((pow >> 15) & 1);
@@ -1262,7 +1268,7 @@ static void present_gl(void) {
 static void present(void) {
     static long long skip = -2;                               /* DQIX_PRESENT_FROM=frame: don't draw before it (tests) */
     if (skip == -2) { const char* e = getenv("DQIX_PRESENT_FROM"); skip = e ? atoll(e) : -1; }
-    if (skip >= 0 && g_frame < (uint64_t)skip) return;
+    if (skip >= 0 && g_frame < (uint64_t)skip) { if (g_gl) present_gl_state(); return; }
     if (g_gl) { present_gl(); return; }
     void* pix; int pitch;
     if (SDL_LockTexture(g_tex, NULL, &pix, &pitch) == 0) {

@@ -1,6 +1,20 @@
 **The newest work, less tested.** Use the stable release for your main
 adventure; try this one in its own folder with a copy of your save.
 
+**New in nightly2**
+- **The menu bar in fullscreen works**: it was greyed out and wouldn't open.
+- **Outlines only on models' edges**: nightly1's smooth outlines also traced
+  fire, people drawn as flat pictures and speech bubbles. Not any more.
+- **No flash of misplaced scenery in widescreen**: something coming into
+  view at the sides (the railing by Coffinwell's well) could be drawn in the
+  wrong place for one frame.
+- **The turnstile in Gortress's prison no longer pops in** across the
+  middle of the picture in widescreen: very large things are now drawn a
+  good way before they can come into view (the game only checks a small box
+  around their centre). Thanks to celvrc for the report.
+- **No flicker of sleeping people as the camera turns**: Enhanced drew each
+  frame a moment too early and showed the old angle's picture for a frame.
+
 **New since stable v31**
 
 Installing
