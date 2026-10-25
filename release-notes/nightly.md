@@ -15,6 +15,9 @@ adventure; try this one in its own folder with a copy of your save.
 - **No flicker of sleeping people as the camera turns**: Enhanced drew each
   frame a moment too early and showed the old angle's picture for a frame.
 
+Still being looked into: the light from the window in Upover's inn
+flickers (#19). It isn't widescreen: it does it with the sides off too.
+
 **New since stable v31**
 
 Installing

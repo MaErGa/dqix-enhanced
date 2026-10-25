@@ -1210,6 +1210,10 @@ static void present_gl_state(void) {
         g_scene_stack = r == 's';
     }
     g_wide_side = g_classic ? 0 : wide_side_target();            /* the next 3D frames (only the picture changes) */
+    {   static long long off_from = -2;                           /* DQIX_WIDE_OFF_FROM=frame: the DS's width from then (tests) */
+        if (off_from == -2) { const char* e = getenv("DQIX_WIDE_OFF_FROM"); off_from = e ? atoll(e) : -1; }
+        if (off_from >= 0 && g_frame >= (uint64_t)off_from) g_wide_side = 0;
+    }
     {   /* ...and what the game counts as in view (not in a session: every PC must decide alike) */
         static int off = -1; if (off < 0) off = getenv("DQIX_NO_WIDE_CULL") != NULL;
         g_wide_cull = off || session_requested() ? 0 : g_wide_side;
