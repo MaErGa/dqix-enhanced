@@ -185,8 +185,10 @@ static const char* FS_POST =
     /* Above 1x: an even line u_ow pixels wide inside the silhouette of every
      * object (where a nearby pixel belongs to another polygon id and lies
      * behind), fading out over its last pixel, so it doesn't follow the
-     * polygons' corners in steps and notches. */
-    "  if (u_edge != 0 && u_ow > 0.0 && at.a > 0.5) {\n"
+     * polygons' corners in steps and notches. Only near a polygon's own edge
+     * (the edge flag, in a band a little wider than the line), like the DS:
+     * the see-through parts of a texture (fire, sprites, letters) get none. */
+    "  if (u_edge != 0 && u_ow > 0.0 && at.b > 0.5 && at.a > 0.5) {\n"
     "    float id = at.r; float d = texelFetch(u_depth, p, 0).r;\n"
     "    ivec2 sz = textureSize(u_color, 0);\n"
     "    int R = int(ceil(u_ow)) + 1; float best = 1e9;\n"
@@ -878,6 +880,12 @@ static void gl_render(const Frame3D* f) {
     g_gl_stats.render_ms += perf_ms() - t0;
     g_gl_stats.polys += f->n;
 }
+/* Outlines above 1x: thin (half a DS pixel), medium (three quarters), or 0:
+ * the DS's own rule. */
+static float gl_outline_width(void) {
+    if (g_scale < 2) return 0;
+    return g_gl_outline == 1 ? fmaxf(1.0f, (float)g_scale * 0.5f) : g_gl_outline == 2 ? fmaxf(1.5f, (float)g_scale * 0.75f) : 0.0f;
+}
 static void gl_render_(const Frame3D* f) {
     g_frameno++;
     {   /* tests: DQIX_GL_PROBE="f,x,y": on the first 3D frame from frame f, list the polygons over DS pixel x,y */
@@ -980,7 +988,10 @@ static void gl_render_(const Frame3D* f) {
     { static float ew = -1; if (ew < 0) { const char* e = getenv("DQIX_EDGEW"); ew = e ? (float)atof(e) : 0; }
       /* outlines: one DS pixel wide at 1x; above that half of one, so a thin leg or
        * arm keeps its colour inside the outline instead of becoming all outline */
-      p_glUniform1f(p_glGetUniformLocation(prog_poly, "u_edgew"), ew > 0 ? ew : g_scale >= 2 ? (float)g_scale * 0.5f : 1.0f); }
+      /* with the even outline (above 1x) the band of pixels that may take it is
+       * a little wider than the line, so it reaches round the models' corners */
+      float ow = gl_outline_width();
+      p_glUniform1f(p_glGetUniformLocation(prog_poly, "u_edgew"), ew > 0 ? ew : ow > 0 ? ow + 1.5f : g_scale >= 2 ? (float)g_scale * 0.5f : 1.0f); }
     p_glUniform1i(p_glGetUniformLocation(prog_poly, "u_tex"), 0);
     p_glUniform1i(p_glGetUniformLocation(prog_poly, "u_highlight"), (disp3d >> 1) & 1);
     p_glUniform1i(p_glGetUniformLocation(prog_poly, "u_alphatest"), (disp3d >> 2) & 1);
@@ -1122,12 +1133,7 @@ static void gl_render_(const Frame3D* f) {
     { static int eb = -2; if (eb == -2) eb = getenv("DQIX_EDGEBLEND") ? atoi(getenv("DQIX_EDGEBLEND")) : -1;
       p_glUniform1i(p_glGetUniformLocation(prog_post, "u_aa"), (eb < 0 ? g_scale == 1 : eb) && ((disp3d >> 4) & 1)); }
     p_glUniform1i(p_glGetUniformLocation(prog_post, "u_scale"), g_scale);
-    {   /* outlines above 1x: thin (one pixel of the picture, like emulators drawing
-         * at a high resolution), medium (half a DS pixel), or the DS's own rule */
-        float ow = 0;
-        if (g_scale >= 2) ow = g_gl_outline == 1 ? fmaxf(1.0f, (float)g_scale * 0.5f) : g_gl_outline == 2 ? fmaxf(1.5f, (float)g_scale * 0.75f) : 0.0f;
-        p_glUniform1f(p_glGetUniformLocation(prog_post, "u_ow"), ow);
-    }
+    p_glUniform1f(p_glGetUniformLocation(prog_post, "u_ow"), gl_outline_width());
     float ec[24];
     for (int i = 0; i < 8; i++) { uint16_t c = IO16_(0x330 + i * 2); ec[i * 3] = (float)(c & 31) / 31.0f; ec[i * 3 + 1] = (float)((c >> 5) & 31) / 31.0f; ec[i * 3 + 2] = (float)((c >> 10) & 31) / 31.0f; }
     p_glUniform3fv(p_glGetUniformLocation(prog_post, "u_edgecol"), 8, ec);
