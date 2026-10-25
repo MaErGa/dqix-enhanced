@@ -24,6 +24,7 @@ enum {
     MI_LANG1 = 300,                                                     /* English, French, German, Italian, Spanish (+0..4) */
     MI_SSIZE0 = 254,                                                    /* + 0..2: small, medium, large */
     MI_SEND_REPORT = 210,
+    MI_HUD = 320,                                                       /* widescreen battles: the HUD over the 3D */
 };
 
 /* shell_names: the console colours, in order (MI_SHELLC0 + i) */
