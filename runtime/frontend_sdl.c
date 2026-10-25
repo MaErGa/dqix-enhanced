@@ -240,7 +240,7 @@ static void scene_rules_load(void) {
     while (fgets(line, sizeof line, f) && g_n_user_rules < 128) {
         char w[16], k[16], n[64];
         if (line[0] == '#' || sscanf(line, "%15s %15s %63s", w, k, n) != 3) continue;
-        SceneRule r = { !strcmp(w, "stacked") ? 's' : !strcmp(w, "bars") ? 'b' : 0, !strcmp(k, "movie") ? 'v' : !strcmp(k, "map") ? 'm' : 0, "" };
+        SceneRule r = { !strcmp(w, "stacked") ? 's' : !strcmp(w, "bars") ? 'b' : !strcmp(w, "wide") ? 'w' : 0, !strcmp(k, "movie") ? 'v' : !strcmp(k, "map") ? 'm' : 0, "" };
         if (!r.what || !r.kind) continue;
         snprintf(r.name, sizeof r.name, "%s", n);
         g_user_rules[g_n_user_rules++] = r;
@@ -254,8 +254,11 @@ static int scene_rule(void) {                                     /* 0, 'b' or '
         const char* name = pass == 0 ? (scene_movie_playing() ? g_scene_movie : NULL) : g_scene_map;
         char kind = pass == 0 ? 'v' : 'm';
         if (!name || !name[0]) continue;
-        for (int i = 0; i < g_n_user_rules; i++) if (g_user_rules[i].kind == kind && !strcmp(g_user_rules[i].name, name)) return g_user_rules[i].what;
+        for (int i = 0; i < g_n_user_rules; i++) if (g_user_rules[i].kind == kind && !strcmp(g_user_rules[i].name, name)) return g_user_rules[i].what == 'w' ? 0 : g_user_rules[i].what;
         for (int i = 0; SCENE_RULES[i].what; i++) if (SCENE_RULES[i].kind == kind && !strcmp(SCENE_RULES[i].name, name)) return SCENE_RULES[i].what;
+        /* A movie (the game's animated cutscenes) is one picture over both screens:
+         * shown stacked, as on the DS, unless widescreen.txt says "wide movie NAME" */
+        if (pass == 0) return 's';
     }
     return 0;
 }
@@ -274,7 +277,7 @@ static void scene_toggle_bars(void) {
     }
     FILE* f = fopen("widescreen.txt", "w"); if (!f) return;
     fprintf(f, "# Scenes with their own widescreen (Modern > Widescreen: black sides in this place).\n");
-    fprintf(f, "# bars map NAME: black sides in that place; stacked movie NAME: both screens stacked while it plays.\n");
+    fprintf(f, "# bars map NAME: black sides in that place; stacked movie NAME: both screens stacked while it plays\n# (movies are stacked anyway); wide movie NAME: that movie widescreen instead.\n");
     for (int i = 0; i < g_n_user_rules; i++)
         fprintf(f, "%s %s %s\n", g_user_rules[i].what == 's' ? "stacked" : "bars", g_user_rules[i].kind == 'v' ? "movie" : "map", g_user_rules[i].name);
     fclose(f);

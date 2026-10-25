@@ -297,6 +297,23 @@ static void wide_submit(int nverts, int facing) {
             if (w > 0 && (s64)tmp_vtx[i].pos[2] * 100 < w * 98) far = 0;   /* z/w under 0.98 */
         }
         if (!left || !right || !(((tex_param >> 26) & 7) == 0 || far)) stretch = 0;
+        if (!stretch) {
+            /* ...or a flat picture over the whole screen (the poison bog's purple flash,
+             * the black card of "Some days later...", the white of a flash): every corner
+             * at or beyond the screen's corners (its left or right edge or further out,
+             * and its top or bottom edge or further), all at the same depth */
+            int l2 = 0, r2 = 0, ok = 1;
+            s64 z0 = 0, w0 = 1;
+            for (int i = 0; i < nverts && ok; i++) {
+                s64 x = tmp_vtx[i].pos[0], y = tmp_vtx[i].pos[1], z = tmp_vtx[i].pos[2], w = tmp_vtx[i].pos[3], tol = w / 256 + 1;
+                if (w <= 0) { ok = 0; break; }
+                if (x >= w - tol) r2++; else if (x <= -w + tol) l2++; else ok = 0;
+                if (y < w - tol && y > -w + tol) ok = 0;
+                if (i == 0) { z0 = z; w0 = w; }
+                else if (llabs(z * w0 - z0 * w) > (w * w0) / 64) ok = 0;   /* z/w the same within 1/64 */
+            }
+            stretch = ok && l2 && r2;
+        }
     }
     Vtx cv[10];
     for (int i = 0; i < nverts; i++) {

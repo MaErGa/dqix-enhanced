@@ -686,6 +686,19 @@ static void write_ppm(const char* path) {
 }
 
 void gpu_frame_done(void) {
+    {   /* DQIX_COMPDUMP=f1,f2,...: engine A's composition for the GPU renderer at those frames (tests):
+         * comp<frame>.bin = 256x192 x (info 4 bytes, the 2D picture RGBA, the 2D below the 3D RGBA) */
+        static const char* at; static int init;
+        if (!init) { init = 1; at = getenv("DQIX_COMPDUMP"); }
+        if (at) {
+            char key[32], buf[4096]; snprintf(key, sizeof key, ",%llu,", (unsigned long long)g_frame); snprintf(buf, sizeof buf, ",%s,", at);
+            if (strstr(buf, key)) {
+                char path[64]; snprintf(path, sizeof path, "comp%06llu.bin", (unsigned long long)g_frame);
+                FILE* f = fopen(path, "wb");
+                if (f) { fwrite(g_comp_info, 1, sizeof g_comp_info, f); fwrite(g_engine_out[0], 1, sizeof g_engine_out[0], f); fwrite(g_comp_c2, 1, sizeof g_comp_c2, f); fclose(f); }
+            }
+        }
+    }
     uint16_t pow; memcpy(&pow, &g_io[0x304], 2);
     int a_top = (pow >> 15) & 1;
     if (!(pow & 1)) {                                               /* LCDs off */
