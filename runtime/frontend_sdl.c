@@ -827,6 +827,7 @@ void frontend_init(int argc, char** argv) {
      * Joy-Cons) by their labels, which would swap A/B and X/Y on them. */
     SDL_SetHint(SDL_HINT_GAMECONTROLLER_USE_BUTTON_LABELS, "0");
     SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_COMBINE_JOY_CONS, "1");   /* two Joy-Cons are one controller */
+    SDL_SetHint(SDL_HINT_VIDEO_MINIMIZE_ON_FOCUS_LOSS, "0");      /* fullscreen: the menu strip takes the focus for a moment */
     if (SDL_Init((g_headless ? 0 : SDL_INIT_VIDEO) | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER) != 0) {
         fprintf(stderr, "SDL_Init failed: %s\n", SDL_GetError());
         exit(1);
@@ -2293,8 +2294,9 @@ static void handle_events(void) {
                 else if (peek2 && e.motion.y > 80) { peek2 = 0; menu_show_second(0); }
             }
             if (g_fullscreen && e.motion.windowID == SDL_GetWindowID(g_win)) {
+                g_menu_peek = menu_strip_shown();                 /* (it also hides itself after a menu closes) */
                 if (!g_menu_peek && e.motion.y <= 1) { g_menu_peek = 1; menu_strip(1); }   /* over the picture, which keeps its size */
-                else if (g_menu_peek && e.motion.y > 80) { g_menu_peek = 0; menu_strip(0); }
+                else if (g_menu_peek && e.motion.y > 80) { menu_strip(0); g_menu_peek = menu_strip_shown(); }
             }
             break;
         case SDL_WINDOWEVENT:

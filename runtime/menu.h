@@ -30,6 +30,7 @@ void menu_show(int on);                       /* hidden in fullscreen */
 /* Fullscreen: the menu bar shown in a strip of its own over the top of the
  * screen (on the window itself it made Windows shrink the picture). */
 void menu_strip(int on);
+int menu_strip_shown(void);                  /* fullscreen: the menu strip is showing */
 /* After leaving fullscreen: make sure the window has its frame back (title
  * bar, borders: it could come back as a bare popup stuck in the corner). */
 void window_fix_frame(SDL_Window* win);

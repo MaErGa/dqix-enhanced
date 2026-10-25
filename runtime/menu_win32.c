@@ -175,20 +175,34 @@ void menu_show(int on) {
 }
 
 static HWND g_strip;
+static int g_strip_menu;                                         /* one of its menus is open */
+/* The strip takes the keyboard while it shows (a window that never activates
+ * can't open its menus, and Windows draws their names greyed), and gives it
+ * back to the game when it hides or a menu closes. */
+static void strip_give_back(void) { if (g_hwnd) SetForegroundWindow(g_hwnd); }
 static LRESULT CALLBACK strip_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
     switch (msg) {
     case WM_COMMAND:                                             /* the game's window handles the menu's commands */
         if (g_hwnd && HIWORD(wp) == 0) PostMessageW(g_hwnd, WM_COMMAND, wp, lp);
         return 0;
-    case WM_MOUSEACTIVATE: return MA_NOACTIVATE;                 /* the game keeps the keyboard */
+    case WM_ENTERMENULOOP: g_strip_menu = 1; break;
+    case WM_EXITMENULOOP: {
+        g_strip_menu = 0;
+        POINT pt; RECT r;                                        /* the mouse went down into the game: the strip goes */
+        if (GetCursorPos(&pt) && GetWindowRect(h, &r) && pt.y > r.bottom + 40) { ShowWindow(h, SW_HIDE); SetMenu(h, NULL); }
+        strip_give_back();
+        break;
+    }
     case WM_CLOSE: return 0;
     }
     return DefWindowProcW(h, msg, wp, lp);
 }
+int menu_strip_shown(void) { return g_strip && IsWindowVisible(g_strip); }
 void menu_strip(int on) {
     if (!g_hwnd || !g_bar) return;
     if (!on) {
-        if (g_strip && IsWindowVisible(g_strip)) { ShowWindow(g_strip, SW_HIDE); SetMenu(g_strip, NULL); }
+        if (g_strip_menu) return;                                /* not while one of its menus is open */
+        if (g_strip && IsWindowVisible(g_strip)) { ShowWindow(g_strip, SW_HIDE); SetMenu(g_strip, NULL); strip_give_back(); }
         return;
     }
     if (!g_strip) {
@@ -197,7 +211,7 @@ void menu_strip(int on) {
         wc.lpszClassName = L"DQIXMenuStrip"; wc.hbrBackground = (HBRUSH)(COLOR_MENUBAR + 1);
         wc.hCursor = LoadCursorW(NULL, (LPCWSTR)IDC_ARROW);
         RegisterClassW(&wc);
-        g_strip = CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, wc.lpszClassName, L"", WS_POPUP, 0, 0, 10, 10, g_hwnd, NULL, wc.hInstance, NULL);
+        g_strip = CreateWindowExW(WS_EX_TOOLWINDOW, wc.lpszClassName, L"", WS_POPUP, 0, 0, 10, 10, g_hwnd, NULL, wc.hInstance, NULL);
         if (!g_strip) return;
     }
     SetMenu(g_hwnd, NULL);
@@ -215,6 +229,7 @@ void menu_strip(int on) {
         if (h > 4 && h < 200) SetWindowPos(g_strip, HWND_TOP, mi.rcMonitor.left, mi.rcMonitor.top, w, h, SWP_NOACTIVATE);
     }
     DrawMenuBar(g_strip);
+    SetForegroundWindow(g_strip);                                /* its menus open, and aren't drawn greyed */
 }
 
 int file_dialog(SDL_Window* win, int save, const char* title, const char* filter, const char* default_name, char* out, size_t n) {
@@ -840,6 +855,7 @@ float display_mm_per_pixel(SDL_Window* win) { (void)win; return 0; }
 void menu_init(SDL_Window* win, const char* const* shell_names, int n_shells) { (void)win; (void)shell_names; (void)n_shells; }
 void menu_show(int on) { (void)on; }
 void menu_strip(int on) { (void)on; }
+int menu_strip_shown(void) { return 0; }
 void window_fix_frame(SDL_Window* win) { (void)win; }
 int clipboard_set_file(const char* path) { (void)path; return 0; }
 int file_dialog(SDL_Window* win, int save, const char* title, const char* filter, const char* default_name, char* out, size_t n) {
