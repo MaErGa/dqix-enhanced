@@ -1,6 +1,36 @@
 **The newest work, less tested.** Use the stable release for your main
 adventure; try this one in its own folder with a copy of your save.
 
+**New in nightly3**
+- **The European version** (Europe, game code YDQP) builds and plays,
+  in English, French, German, Italian or Spanish: the new **Language** menu.
+  Thanks to romusan495.
+- **Linux**: an AppImage that builds the game from your ROM, with a window
+  to choose it and follow the build. Thanks to rakmahefa.
+- **HD text** (new, off at first: Graphics > HD text, or F1): the game's
+  letters drawn again at full resolution with real fonts. Thanks to Arthur
+  Ferreira Soares.
+- **Mods menu**:
+  - **Texture packs**: PNG pictures in the `textures` folder are drawn
+    instead of the game's textures. To make one, turn on *Dump textures*
+    and play: every texture shown lands in `textures\dump`. Redraw them,
+    keep their names, put them in `textures`, then *Reload*.
+  - **Upscale the 3D textures** (off at first): xBR, 4x.
+  - Hold **`** (left of 1) to see the game's own textures, to compare.
+  Thanks to romusan495, whose code this is built on.
+- **Widescreen**:
+  - The poison bog's flash, the "Some days later..." card, the Battle
+    Records card and white flashes cover the sides too (they reached one
+    side only).
+  - The game's movies (the sacred tree) show both screens stacked, as on
+    the DS.
+  - **Battle HUD** (experimental, off at first: Modern > Widescreen: battle
+    HUD): the party's panels stacked in the bottom left over the 3D, the
+    experience and level-up windows big at the top. Thanks to romusan495.
+- **Graphics > Soft shadows and glows** can be turned off (the DS's stepped
+  look).
+- **Show on Discord what I'm playing** (Modern menu).
+
 **New in nightly2**
 - **The menu bar in fullscreen works**: it was greyed out and wouldn't open.
 - **Outlines only on models' edges**: nightly1's smooth outlines also traced

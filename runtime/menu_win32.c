@@ -69,7 +69,6 @@ void menu_init(SDL_Window* win, const char* const* shell_names, int n_shells) {
     item(ol, MI_OUTLINE0 + 2, L"Like the &DS (thicker, follows the polygons)");
     item(gfx, MI_HD_TEXT, L"&HD text: the letters at full resolution (Enhanced, new)\tF1");
     item(gfx, MI_SOFT_SHADOWS, L"Soft s&hadows and glows (Enhanced)");
-    item(gfx, MI_SMOOTH_SHADE, L"Smooth s&hading on characters (Enhanced)");
 
     HMENU scr = sub(g_bar, L"&Screen");
     item(scr, MI_LCD, L"&DS Lite screen\tF6");
