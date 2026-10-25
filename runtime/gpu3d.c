@@ -1585,6 +1585,7 @@ static void render_frame(void) {
 /* ================================================================ frame flow */
 const Renderer3D* g_renderer3d;
 int g_renderer3d_verify;
+static int g_gl_pending;                 /* a new list for the GPU renderer, drawn at scanline 215 */
 static int g_render_pending;                                        /* a render is due at line 215 */
 
 static int ysort_cmp(const void* a, const void* b) {
@@ -1700,7 +1701,12 @@ void gpu3d_vblank(void) {
         n_vtx = 0; n_poly = 0; n_opaque = 0;
         flush_request = 0;
     }
-    if (g_renderer3d && new_list) gl_frame();
+    /* the GPU renderer draws the new list at scanline 215 (gpu3d_render_start),
+     * like the DS, which starts drawing at 214: the textures the game changes
+     * in this vblank (a sprite's next picture) belong to this list. Drawing here,
+     * before the game's vblank work, paired new positions with old pictures for
+     * a frame (sleeping people's poses flickering as the camera turned). */
+    if (g_renderer3d && new_list) g_gl_pending = 1;
     g_render_pending = 1;
 }
 
@@ -1708,6 +1714,7 @@ void gpu3d_vblank(void) {
 void gpu3d_render_start(void) {
     if (!g_render_pending) return;
     g_render_pending = 0;
+    if (g_renderer3d && g_gl_pending) { g_gl_pending = 0; gl_frame(); }
     if (g_renderer3d && !g_renderer3d_verify) return;
     double t0 = ms_now();
     render_frame();
