@@ -278,6 +278,11 @@ static const char* FS_COMP =
     "      o_color = vec4(o0, 1.0); return;\n"
     "    }\n"
     "    p2.x = found;\n"
+    /* a 2D layer blended over the whole picture (the sepia of memories, GitHub #18):
+     * continue it into the sides as its mirror image, not its edge column in streaks */
+    "    int mx = clamp(dsx < 0.0 ? int(-dsx) : 511 - int(dsx), 0, 255);\n"
+    "    uint mi = texelFetch(u_info, ivec2(mx, p2.y), 0).r & 3u;\n"
+    "    if (mi >= 2u && (texelFetch(u_info, ivec2(found, p2.y), 0).r & 3u) >= 2u) p2.x = mx;\n"
     "  }\n"
     "  vec3 col = texelFetch(u_col, p2, 0).rgb;\n"
     /* bare: under the letters there is no 2D, only the 3D (a message box
