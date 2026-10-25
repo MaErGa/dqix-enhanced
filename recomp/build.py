@@ -618,7 +618,7 @@ def main():
     ap.add_argument("--config", required=True)
     ap.add_argument("--out", required=True)
     ap.add_argument("--per-file", type=int, default=400)
-    ap.add_argument("--hle", help="file listing '<module> <addr>' functions the runtime provides instead")
+    ap.add_argument("--hle", help="file listing '<module> <addr> [name]' functions the runtime provides instead (as hle_<name>, or under the generated name)")
     ap.add_argument("--interpret", help="file listing '<module> <addr>' functions to run in the interpreter (code that changes at run time)")
     ap.add_argument("--patch", help="file listing '<module> <addr> <new 32-bit ARM word>' instruction overrides (e.g. removing anti-piracy traps)")
     ap.add_argument("--wrap", help="file listing '<module> <addr>' functions recompiled as <name>_orig: the runtime provides <name>, which calls it (hooks around the game's own code)")
@@ -640,12 +640,12 @@ def main():
             line = line.split("#")[0].split()
             if len(line) == 2:
                 interp.add((line[0], int(line[1], 16)))
-    hle = set()
+    hle = {}
     if args.hle:
         for line in open(args.hle):
             line = line.split("#")[0].split()
-            if len(line) == 2:
-                hle.add((line[0], int(line[1], 16)))
+            if len(line) in (2, 3):
+                hle[(line[0], int(line[1], 16))] = line[2] if len(line) == 3 else None
     wrap = set()
     if args.wrap:
         for line in open(args.wrap):
@@ -668,7 +668,13 @@ def main():
                 fn.interpreted = True
                 continue
             if (fn.module.name, fn.addr) in hle:
-                code[(fn.module.name, fn.addr)] = f"/* {fn.cname}: provided by the runtime (HLE) */"
+                name = hle[(fn.module.name, fn.addr)]
+                if name:      # the runtime's hle_<name>, whatever the address is in this ROM
+                    code[(fn.module.name, fn.addr)] = (f"/* {fn.name}: provided by the runtime (HLE) */\n"
+                                                       f"void hle_{name}(Cpu* c);\n"
+                                                       f"void {fn.cname}(Cpu* c) {{ hle_{name}(c); }}")
+                else:
+                    code[(fn.module.name, fn.addr)] = f"/* {fn.cname}: provided by the runtime (HLE) */"
                 rc.stats["hle_functions"] += 1
                 continue
             body = rc.emit_func(fn)

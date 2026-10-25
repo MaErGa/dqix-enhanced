@@ -159,6 +159,12 @@ void menu_init(SDL_Window* win, const char* const* shell_names, int n_shells) {
     item(modern, MI_SCENE_BARS, L"Widescreen: &black sides in this place (remembered)");
     sep(modern);
     item(modern, MI_MODERN_HELP, L"&What is this?");
+    HMENU lang = sub(g_bar, L"&Language");
+    item(lang, MI_LANG1, L"&English");
+    item(lang, MI_LANG1 + 1, L"&Fran\u00e7ais");
+    item(lang, MI_LANG1 + 2, L"&Deutsch");
+    item(lang, MI_LANG1 + 3, L"&Italiano");
+    item(lang, MI_LANG1 + 4, L"E&spa\u00f1ol");
     HMENU help = sub(g_bar, L"&Help");
     item(help, MI_CONTROLS, L"&Controls");
     item(help, MI_UPDATE, L"Check for &updates...");

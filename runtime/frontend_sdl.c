@@ -453,6 +453,9 @@ static int g_color_chosen;
 static void default_console_color(void) {
     for (int i = 0; i < g_nskins; i++) if (!strcmp(g_skins[i].file + 6, "dslite_black.png")) g_opt.shell_color = N_DRAWN + i;
 }
+/* settings.ini's names for g_fw_language (1-5), and the menu's */
+static const char* const LANGUAGE_KEY[6] = { "", "english", "french", "german", "italian", "spanish" };
+static const char* const LANGUAGE_NAME[6] = { "", "English", "Fran\xc3\xa7" "ais", "Deutsch", "Italiano", "Espa\xc3\xb1ol" };
 static void settings_load(void) {
     FILE* f = fopen(SETTINGS, "r");
     if (!f) return;
@@ -512,6 +515,7 @@ static void settings_load(void) {
         else if (!strcmp(key, "actual_size")) g_opt.actual = atoi(val) != 0;
         else if (!strcmp(key, "monitor_width_mm")) g_opt.monitor_width_mm = (float)atof(val);
         else if (!strcmp(key, "downloadable_content")) g_opt.dlc = atoi(val) != 0;
+        else if (!strcmp(key, "language")) { for (int i = 1; i <= 5; i++) if (!strcmp(val, LANGUAGE_KEY[i])) g_fw_language = i; }
         else if (!strcmp(key, "wireless")) g_net_want = atoi(val) != 0;
         else if (!strcmp(key, "wfc_server")) snprintf(g_wfc_server, sizeof g_wfc_server, "%s", val);
         else if (!strcmp(key, "wireless_mac")) {
@@ -601,6 +605,8 @@ static void settings_save(void) {
     fprintf(f, "monitor_width_mm = %g\n", g_opt.monitor_width_mm);
     fprintf(f, "# switch on every downloadable quest and special guest at start, without connecting: 0 or 1\n");
     fprintf(f, "downloadable_content = %d\n", g_opt.dlc);
+    fprintf(f, "# the game's language (European version; the USA version is in English): english, french, german, italian or spanish\n");
+    fprintf(f, "language = %s\n", LANGUAGE_KEY[g_fw_language >= 1 && g_fw_language <= 5 ? g_fw_language : 1]);
     fprintf(f, "# Wireless menu: connect to a community Nintendo Wi-Fi Connection server: 0 or 1\n");
     fprintf(f, "wireless = %d\n", g_net_want);
     fprintf(f, "# which server: builtin (offline, the files in the wfc folder), altwfc, wiimmfi, or another's DNS address\n");
@@ -1401,6 +1407,7 @@ static void menu_sync(void) {
     menu_check(MI_SWAP, g_swap && !wide); menu_enable(MI_SWAP, !wide);
     for (int i = 0; i < 4; i++) { menu_check(MI_OPACITY1 + i, g_small_opacity == 100 - 25 * i); menu_enable(MI_OPACITY1 + i, g_gl); }
     menu_check(MI_ANALOG, g_analog_walk);
+    for (int i = 0; i < 5; i++) { menu_check(MI_LANG1 + i, g_fw_language == i + 1); menu_enable(MI_LANG1 + i, rom_is_eur()); }
     for (int i = 0; i < 4; i++) { menu_check(MI_SIZE1 + i, g_scale == i + 1); menu_enable(MI_SIZE1 + i, !g_opt.actual); }
     menu_check(MI_INTEGER, g_opt.integer); menu_enable(MI_INTEGER, !g_opt.actual);
     menu_check(MI_ACTUAL, g_opt.actual); menu_enable(MI_ACTUAL, g_gl);
@@ -2132,6 +2139,16 @@ static void do_action(int id) {
 #endif
         break;
     case MI_ANALOG: g_analog_walk = !g_analog_walk; break;
+    case MI_LANG1: case MI_LANG1 + 1: case MI_LANG1 + 2: case MI_LANG1 + 3: case MI_LANG1 + 4: {
+        int lang = id - MI_LANG1 + 1;
+        if (lang == g_fw_language) break;
+        g_fw_language = lang;
+        char text[300];
+        snprintf(text, sizeof text, "The game will be in %s the next time it starts: close it and start it again.\n\n"
+                 "Your adventure log is the same in every language.", LANGUAGE_NAME[lang]);
+        info_box(SDL_MESSAGEBOX_INFORMATION, "Language", text, g_win);
+        break;
+    }
     case MI_MODERN_HELP:
         info_box(SDL_MESSAGEBOX_INFORMATION, "Modern",
             "Optional ways to play that the DS didn't have. Walking with the stick is on at first; the others are off. With them all off the game is exactly the original.\n\n"
