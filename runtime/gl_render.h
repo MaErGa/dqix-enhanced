@@ -13,6 +13,8 @@ extern int g_gl_bars;                                 /* widescreen: black sides
 extern int g_gl_soft_alpha;                           /* above 1x: textures with alpha levels drawn smooth */
 extern int g_gl_outline;                              /* outlines above 1x: 1 thin, 2 medium, 0 the DS's own rule */
 void gl_set_smooth(int on);                           /* smooth textures (filtered) instead of the DS's blocks */
+void gl_set_hd_text(int on);                          /* HD text: the game's letters redrawn at full resolution (text_hd.h) */
+void gl_hd_fonts(const char* dir);                    /* ...from dir/main.ttf, dir/small.ttf and dir/labels.bin */
 const Renderer3D* gl_renderer3d(void);
 void gl_compose(int a_on_top, int lcd_on);           /* at VBlank: 2D + 3D -> both screens */
 /* How to show the screens: canvas (DS pixels) placed in the window at

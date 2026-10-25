@@ -35,6 +35,7 @@
 #include "nds.h"
 #include "frontend.h"
 #include "gl_render.h"
+#include "text_hd.h"
 #include "menu.h"
 #include "version.h"
 #include "session.h"
@@ -65,6 +66,7 @@ static SDL_Window* g_win2;                                        /* ...the seco
 static int g_win2_full, g_win2_rect[4];                           /* ...fullscreen; where it was as a window (w = 0: not yet) */
 static int g_wide_pop;                                            /* widescreen: the small screen in its own window (the field alone) */
 static int g_smooth = 0;                                          /* Enhanced: smooth (filtered) textures */
+static int g_hd_text = 0;                                            /* Enhanced: the game's letters redrawn at full resolution (text_hd.h) */
 static int g_res_auto = 1;                                        /* 3D resolution: as sharp as the screen shows it (else g_scale3d) */
 static int g_small_opacity = 50;                                  /* widescreen: how solid the small screen over the field is (O), % */
 static int g_wide_dyn;                                            /* widescreen: 0 basic (the corner stays), 1 dynamic (experimental: slides for menus) */
@@ -487,6 +489,8 @@ static void settings_load(void) {
         else if (!strcmp(key, "outlines")) g_gl_outline = !strcmp(val, "medium") ? 2 : !strcmp(val, "ds") ? 0 : 1;
         else if (!strcmp(key, "soft_shadows")) g_gl_soft_alpha = atoi(val) != 0;
         else if (!strcmp(key, "smooth_shading")) g_gl_soft_shade = atoi(val) != 0;
+        else if (!strcmp(key, "hd_text")) g_hd_text = atoi(val) != 0;
+        else if (!strcmp(key, "hd_text_shadows")) g_tx_shadows = atoi(val) != 0;
         else if (!strcmp(key, "small_screen_opacity")) { int v = atoi(val); if (v >= 10 && v <= 100) opacity_saved = v; }
         else if (!strcmp(key, "second_window")) { int r[4]; if (sscanf(val, "%d,%d,%d,%d", &r[0], &r[1], &r[2], &r[3]) == 4 && r[2] > 0 && r[3] > 0) memcpy(g_win2_rect, r, sizeof r); }
         else if (!strcmp(key, "second_window_fullscreen")) g_win2_full = atoi(val) != 0;
@@ -541,6 +545,10 @@ static void settings_save(void) {
     fprintf(f, "soft_shadows = %d\n", g_gl_soft_alpha != 0);
     fprintf(f, "# enhanced above 1x: the shading on characters as a smooth ramp instead of the DS's steps: 0 or 1\n");
     fprintf(f, "smooth_shading = %d\n", g_gl_soft_shade != 0);
+    fprintf(f, "# enhanced: HD text, the game's letters drawn again at full resolution from fonts/main.ttf and fonts/small.ttf: 0 or 1 (F1)\n");
+    fprintf(f, "hd_text = %d\n", g_hd_text);
+    fprintf(f, "# HD text: keep the letters' shadows and outlines (0: plain letters)\n");
+    fprintf(f, "hd_text_shadows = %d\n", g_tx_shadows);
     fprintf(f, "# widescreen: the small screen (map, battle commands) in a window of its own: 0 or 1\n");
     fprintf(f, "widescreen_popout = %d\n", g_wide_pop);
     fprintf(f, "# window size: 1 to 8 times the DS screens (F3)\n");
@@ -704,6 +712,9 @@ static int try_gl(void) {
     if (getenv("DQIX_SOFTALPHA")) g_gl_soft_alpha = atoi(getenv("DQIX_SOFTALPHA"));   /* tests */
     if (getenv("DQIX_SOFTSHADE")) g_gl_soft_shade = atoi(getenv("DQIX_SOFTSHADE"));   /* tests */
     gl_set_smooth(g_smooth);
+    if (getenv("DQIX_HDTEXT")) g_hd_text = atoi(getenv("DQIX_HDTEXT")) != 0;   /* tests */
+    gl_hd_fonts("fonts");
+    gl_set_hd_text(g_hd_text);
     if (!gl_render_init(g_res_auto ? (getenv("DQIX_AUTO_FROM") ? 2 : 4) : g_scale3d)) {
         fprintf(stderr, "OpenGL renderer failed to start: using the software renderer\n");
         SDL_GL_DeleteContext(g_glctx); SDL_DestroyWindow(g_win); g_win = NULL; return 0;
@@ -1103,7 +1114,7 @@ static void report_window_shot(int w, int h) {
  * is on screen, nothing personal (no names, addresses or Wi-Fi ID). */
 static void settings_save(void);
 static void report_display(const char* dir) {
-    static const char* KEEP[] = { "mode", "render_scale", "smooth_textures", "outlines", "soft_shadows", "smooth_shading", "widescreen_popout", "window_scale", "layout",
+    static const char* KEEP[] = { "mode", "render_scale", "smooth_textures", "outlines", "soft_shadows", "smooth_shading", "hd_text", "widescreen_popout", "window_scale", "layout",
         "single_screen", "small_screen_corner", "small_screen_size", "small_screen_hidden", "small_screen_opacity", "swap_screens",
         "second_window", "second_window_fullscreen", "walk_any_direction", "fullscreen", "dslite_filter", "lcd_colors", "pixel_grid",
         "motion_blur", "backlight", "screen_gap", "console", "integer_scaling", "actual_size" };
@@ -1361,6 +1372,7 @@ static void menu_sync(void) {
     menu_check(MI_POPOUT, g_wide_pop && wide); menu_enable(MI_POPOUT, g_gl);
     menu_enable(MI_SCENE_BARS, wide);
     menu_check(MI_SMOOTH, g_smooth); menu_enable(MI_SMOOTH, g_gl && !g_classic);
+    menu_check(MI_HD_TEXT, g_hd_text != 0); menu_enable(MI_HD_TEXT, g_gl != 0);
     menu_check(MI_SOFT_SHADOWS, g_gl_soft_alpha != 0); menu_enable(MI_SOFT_SHADOWS, g_gl && !g_classic);
     menu_check(MI_SMOOTH_SHADE, g_gl_soft_shade != 0); menu_enable(MI_SMOOTH_SHADE, g_gl && !g_classic);
     for (int i = 0; i < 3; i++) { menu_check(MI_OUTLINE0 + i, g_gl_outline == (i == 0 ? 1 : i == 1 ? 2 : 0)); menu_enable(MI_OUTLINE0 + i, g_gl && !g_classic); }
@@ -2040,6 +2052,12 @@ static void do_action(int id) {
     case MI_RES_AUTO: if (g_gl && !g_classic) g_res_auto = 1; break;          /* auto_scale() picks it */
     case MI_SMOOTH: if (g_gl) { g_smooth = !g_smooth; gl_set_smooth(g_smooth); } break;
     case MI_SCENE_BARS: scene_toggle_bars(); break;
+    case MI_HD_TEXT:
+        if (g_gl) {
+            g_hd_text = !g_hd_text; gl_set_hd_text(g_hd_text);
+            notice(g_classic ? "HD text %s (shows in Enhanced, F5)" : "HD text %s", g_hd_text ? "on" : "off");
+        }
+        break;
     case MI_SOFT_SHADOWS:
         g_gl_soft_alpha = !g_gl_soft_alpha;
         notice("Soft shadows: %s%s", g_gl_soft_alpha ? "on" : "off (the DS's steps)", g_scale3d < 2 && !g_res_auto ? " - shows at 2x and above" : "");
@@ -2227,6 +2245,7 @@ static void hotkey(int a) {
     case CA_RESET: do_action(MI_RESET); break;
     case CA_SHOT: do_action(MI_SHOT); break;
     case CA_REPORT: do_action(MI_REPORT); break;
+    case CA_HDTEXT: do_action(MI_HD_TEXT); break;
     }
 }
 
