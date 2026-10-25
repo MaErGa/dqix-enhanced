@@ -24,9 +24,9 @@
 #endif
 
 /* The project's Discord application (its ID is not a secret: every program
- * that shows an activity sends it). Empty: none yet, nothing is shown. */
+ * that shows an activity sends it). discord_app_id in settings.ini overrides it. */
 #ifndef DISCORD_APP_ID
-#define DISCORD_APP_ID ""
+#define DISCORD_APP_ID "1564002016639062076"
 #endif
 
 static char g_app_id[32] = DISCORD_APP_ID;
