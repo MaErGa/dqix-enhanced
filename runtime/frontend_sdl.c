@@ -35,6 +35,7 @@
 #include "nds.h"
 #include "frontend.h"
 #include "gl_render.h"
+#include "discord.h"
 #include "text_hd.h"
 #include "menu.h"
 #include "version.h"
@@ -66,6 +67,7 @@ static SDL_Window* g_win2;                                        /* ...the seco
 static int g_win2_full, g_win2_rect[4];                           /* ...fullscreen; where it was as a window (w = 0: not yet) */
 static int g_wide_pop;                                            /* widescreen: the small screen in its own window (the field alone) */
 static int g_smooth = 0;                                          /* Enhanced: smooth (filtered) textures */
+static int g_discord = 1;                                         /* Modern > Show on Discord what I'm playing (discord.c) */
 static int g_tex_pack = 1, g_tex_up = 0, g_tex_dump = 0;           /* Mods (gl_render.c) */
 static int g_hd_text = 0;                                            /* Enhanced: the game's letters redrawn at full resolution (text_hd.h) */
 static int g_res_auto = 1;                                        /* 3D resolution: as sharp as the screen shows it (else g_scale3d) */
@@ -532,6 +534,8 @@ static void settings_load(void) {
         else if (!strcmp(key, "smooth_shading")) g_gl_soft_shade = atoi(val) != 0;
         else if (!strcmp(key, "hd_text")) g_hd_text = atoi(val) != 0;
         else if (!strcmp(key, "texture_packs")) g_tex_pack = atoi(val) != 0;
+        else if (!strcmp(key, "discord")) g_discord = atoi(val) != 0;
+        else if (!strcmp(key, "discord_app_id")) discord_set_app_id(val);
         else if (!strcmp(key, "upscale_textures")) g_tex_up = atoi(val) != 0;
         else if (!strcmp(key, "hd_text_shadows")) g_tx_shadows = atoi(val) != 0;
         else if (!strcmp(key, "small_screen_opacity")) { int v = atoi(val); if (v >= 10 && v <= 100) opacity_saved = v; }
@@ -591,6 +595,8 @@ static void settings_save(void) {
     fprintf(f, "smooth_shading = %d\n", g_gl_soft_shade != 0);
     fprintf(f, "# enhanced: HD text, the game's letters drawn again at full resolution from fonts/main.ttf and fonts/small.ttf: 0 or 1 (F1)\n");
     fprintf(f, "hd_text = %d\n", g_hd_text);
+    fprintf(f, "# show on Discord what you're playing (when the Discord app is running): 0 or 1\n");
+    fprintf(f, "discord = %d\n", g_discord);
     fprintf(f, "# Mods: texture packs (PNGs in the textures folder drawn instead of the game's): 0 or 1\n");
     fprintf(f, "texture_packs = %d\n", g_tex_pack);
     fprintf(f, "# Mods: the 3D textures upscaled 4x with xBR: 0 or 1\n");
@@ -1459,6 +1465,10 @@ static void update_title(double fps) {
     else snprintf(title, sizeof title, "Dragon Quest IX " DQIX_VERSION " - %s%s - %.1f fps%s%s", g_classic ? "Classic" : "Enhanced",
                   g_gl && g_opt.lcd ? " - DS Lite screen" : "", fps, g_fast ? " (fast)" : "", ses);
     SDL_SetWindowTitle(g_win, title);
+    if (!g_headless && !getenv("DQIX_INPUT_FILE")) {               /* Discord (not in replays) */
+        static int was = -1; if (was != g_discord) { was = g_discord; discord_enable(g_discord); }
+        discord_activity(session_running() ? "Playing with friends" : "", "DQIX Enhanced " DQIX_VERSION);
+    }
 }
 
 static void menu_sync(void) {
@@ -1492,6 +1502,7 @@ static void menu_sync(void) {
     menu_check(MI_HUD, g_hud && wide); menu_enable(MI_HUD, g_gl);
     menu_check(MI_SMOOTH, g_smooth); menu_enable(MI_SMOOTH, g_gl && !g_classic);
     menu_check(MI_HD_TEXT, g_hd_text != 0); menu_enable(MI_HD_TEXT, g_gl != 0);
+    menu_check(MI_DISCORD, g_discord && discord_available()); menu_enable(MI_DISCORD, discord_available());
     menu_check(MI_TEXPACK, g_tex_pack); menu_check(MI_TEXUP, g_tex_up); menu_check(MI_TEXDUMP, g_tex_dump);
     for (int i = MI_TEXPACK; i <= MI_TEXFOLDER; i++) menu_enable(i, g_gl != 0);
     menu_check(MI_SOFT_SHADOWS, g_gl_soft_alpha != 0); menu_enable(MI_SOFT_SHADOWS, g_gl && !g_classic);
@@ -2185,6 +2196,7 @@ static void do_action(int id) {
     case MI_RES_AUTO: if (g_gl && !g_classic) g_res_auto = 1; break;          /* auto_scale() picks it */
     case MI_SMOOTH: if (g_gl) { g_smooth = !g_smooth; gl_set_smooth(g_smooth); } break;
     case MI_SCENE_BARS: scene_toggle_bars(); break;
+    case MI_DISCORD: g_discord = !g_discord; discord_enable(g_discord && !g_headless); break;
     case MI_TEXPACK:
         g_tex_pack = !g_tex_pack; gl_set_texture_pack(g_tex_pack);
         if (g_tex_pack) { int n = gl_reload_texture_pack(); notice(n ? "Texture packs: %d pictures" : "Texture packs on (the textures folder has none yet)", n); }

@@ -21,6 +21,7 @@ enum {
     MI_OUTLINE0 = 260,                                                  /* + 0..2: thin, medium, like the DS */
     MI_SCENE_BARS = 263, MI_SAVE_EXPORT, MI_SAVE_IMPORT,
     MI_SOFT_SHADOWS = 270, MI_SMOOTH_SHADE, MI_HD_TEXT,
+    MI_DISCORD = 340,
     MI_TEXPACK = 330, MI_TEXUP, MI_TEXDUMP, MI_TEXRELOAD, MI_TEXFOLDER, MI_MODS_HELP,
     MI_LANG1 = 300,                                                     /* English, French, German, Italian, Spanish (+0..4) */
     MI_SSIZE0 = 254,                                                    /* + 0..2: small, medium, large */
