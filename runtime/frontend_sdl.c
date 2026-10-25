@@ -485,6 +485,8 @@ static void settings_load(void) {
         else if (!strcmp(key, "widescreen_popout")) g_wide_pop = atoi(val) != 0;
         else if (!strcmp(key, "smooth_textures")) g_smooth = atoi(val) != 0;
         else if (!strcmp(key, "outlines")) g_gl_outline = !strcmp(val, "medium") ? 2 : !strcmp(val, "ds") ? 0 : 1;
+        else if (!strcmp(key, "soft_shadows")) g_gl_soft_alpha = atoi(val) != 0;
+        else if (!strcmp(key, "smooth_shading")) g_gl_soft_shade = atoi(val) != 0;
         else if (!strcmp(key, "small_screen_opacity")) { int v = atoi(val); if (v >= 10 && v <= 100) opacity_saved = v; }
         else if (!strcmp(key, "second_window")) { int r[4]; if (sscanf(val, "%d,%d,%d,%d", &r[0], &r[1], &r[2], &r[3]) == 4 && r[2] > 0 && r[3] > 0) memcpy(g_win2_rect, r, sizeof r); }
         else if (!strcmp(key, "second_window_fullscreen")) g_win2_full = atoi(val) != 0;
@@ -535,6 +537,10 @@ static void settings_save(void) {
     fprintf(f, "smooth_textures = %d\n", g_smooth);
     fprintf(f, "# enhanced above 1x: character outlines thin, medium or ds (the DS's own rule, thicker)\n");
     fprintf(f, "outlines = %s\n", g_gl_outline == 2 ? "medium" : g_gl_outline == 0 ? "ds" : "thin");
+    fprintf(f, "# enhanced above 1x: shadows, glows and light with soft edges as a smooth gradient: 0 or 1\n");
+    fprintf(f, "soft_shadows = %d\n", g_gl_soft_alpha != 0);
+    fprintf(f, "# enhanced above 1x: the shading on characters as a smooth ramp instead of the DS's steps: 0 or 1\n");
+    fprintf(f, "smooth_shading = %d\n", g_gl_soft_shade != 0);
     fprintf(f, "# widescreen: the small screen (map, battle commands) in a window of its own: 0 or 1\n");
     fprintf(f, "widescreen_popout = %d\n", g_wide_pop);
     fprintf(f, "# window size: 1 to 8 times the DS screens (F3)\n");
@@ -1097,7 +1103,7 @@ static void report_window_shot(int w, int h) {
  * is on screen, nothing personal (no names, addresses or Wi-Fi ID). */
 static void settings_save(void);
 static void report_display(const char* dir) {
-    static const char* KEEP[] = { "mode", "render_scale", "smooth_textures", "outlines", "widescreen_popout", "window_scale", "layout",
+    static const char* KEEP[] = { "mode", "render_scale", "smooth_textures", "outlines", "soft_shadows", "smooth_shading", "widescreen_popout", "window_scale", "layout",
         "single_screen", "small_screen_corner", "small_screen_size", "small_screen_hidden", "small_screen_opacity", "swap_screens",
         "second_window", "second_window_fullscreen", "walk_any_direction", "fullscreen", "dslite_filter", "lcd_colors", "pixel_grid",
         "motion_blur", "backlight", "screen_gap", "console", "integer_scaling", "actual_size" };
@@ -1355,6 +1361,8 @@ static void menu_sync(void) {
     menu_check(MI_POPOUT, g_wide_pop && wide); menu_enable(MI_POPOUT, g_gl);
     menu_enable(MI_SCENE_BARS, wide);
     menu_check(MI_SMOOTH, g_smooth); menu_enable(MI_SMOOTH, g_gl && !g_classic);
+    menu_check(MI_SOFT_SHADOWS, g_gl_soft_alpha != 0); menu_enable(MI_SOFT_SHADOWS, g_gl && !g_classic);
+    menu_check(MI_SMOOTH_SHADE, g_gl_soft_shade != 0); menu_enable(MI_SMOOTH_SHADE, g_gl && !g_classic);
     for (int i = 0; i < 3; i++) { menu_check(MI_OUTLINE0 + i, g_gl_outline == (i == 0 ? 1 : i == 1 ? 2 : 0)); menu_enable(MI_OUTLINE0 + i, g_gl && !g_classic); }
     menu_check(MI_LCD, g_opt.lcd); menu_enable(MI_LCD, g_gl);
     int lcd = g_gl && g_opt.lcd;
@@ -2032,6 +2040,14 @@ static void do_action(int id) {
     case MI_RES_AUTO: if (g_gl && !g_classic) g_res_auto = 1; break;          /* auto_scale() picks it */
     case MI_SMOOTH: if (g_gl) { g_smooth = !g_smooth; gl_set_smooth(g_smooth); } break;
     case MI_SCENE_BARS: scene_toggle_bars(); break;
+    case MI_SOFT_SHADOWS:
+        g_gl_soft_alpha = !g_gl_soft_alpha;
+        notice("Soft shadows: %s%s", g_gl_soft_alpha ? "on" : "off (the DS's steps)", g_scale3d < 2 && !g_res_auto ? " - shows at 2x and above" : "");
+        break;
+    case MI_SMOOTH_SHADE:
+        g_gl_soft_shade = !g_gl_soft_shade;
+        notice("Smooth shading: %s%s", g_gl_soft_shade ? "on" : "off (the DS's steps)", g_scale3d < 2 && !g_res_auto ? " - shows at 2x and above" : "");
+        break;
     case MI_SAVE_EXPORT: save_export(); break;
     case MI_SAVE_IMPORT: save_import(); break;
     case MI_OUTLINE0: case MI_OUTLINE0 + 1: case MI_OUTLINE0 + 2:
