@@ -11,6 +11,12 @@ int gl_render_max_scale(void);                        /* ...that this GPU can ho
 extern int g_gl_soft_shade;                           /* above 1x: the game's stepped (toon) shading as a smooth ramp */
 extern int g_gl_bars;                                 /* widescreen: black sides (a scene made for the DS's width) */
 extern int g_gl_soft_alpha;                           /* above 1x: textures with alpha levels drawn smooth */
+/* Mods (texture packs: the textures folder; dumping; xBR upscaling): gl_render.c */
+void gl_set_texture_pack(int on);
+void gl_set_tex_upscale(int on);
+void gl_set_texture_dump(int on);
+int gl_reload_texture_pack(void);            /* how many pictures the packs have */
+extern int g_tex_compare;                    /* held: the game's own textures */
 extern int g_gl_outline;                              /* outlines above 1x: 1 thin, 2 medium, 0 the DS's own rule */
 void gl_set_smooth(int on);                           /* smooth textures (filtered) instead of the DS's blocks */
 void gl_set_hd_text(int on);                          /* HD text: the game's letters redrawn at full resolution (text_hd.h) */

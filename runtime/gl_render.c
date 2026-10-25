@@ -658,7 +658,7 @@ static int g_ready;
 const int* g_gl_scale = &g_scale;
 
 /* ---------------------------------------------------------------- textures */
-typedef struct { uint32_t ti, pl; uint64_t hash; GLuint tex; int w, h; uint64_t checked, used; int live, hd; int lab, lbx, lby, labok; } TexEntry;
+typedef struct { uint32_t ti, pl; uint64_t hash; GLuint tex; int w, h; uint64_t checked, used; int live, hd; int lab, lbx, lby, labok; GLuint up, pk; int alt; } TexEntry;   /* alt: 1 a texture pack's picture (pk), 2 upscaled (up) */
 #define TEXCACHE 4096
 static TexEntry g_texcache[TEXCACHE];
 static int g_smooth;                                           /* smooth textures (bilinear filtering) */
@@ -679,6 +679,8 @@ static TexEntry* tex_lookup(uint32_t ti, uint32_t pl) {
         TexEntry* lru = NULL;
         for (int k = 0; k < 16; k++) { TexEntry* e = &g_texcache[(h + (uint32_t)k) & (TEXCACHE - 1)]; if (!lru || e->used < lru->used) lru = e; }
         p_glDeleteTextures(1, &lru->tex);
+        if (lru->up) { p_glDeleteTextures(1, &lru->up); lru->up = 0; }
+        lru->pk = 0; lru->alt = 0;
         lru->live = 0;
         free_slot = lru;
     }
@@ -720,6 +722,212 @@ static void bleed(uint8_t* px, int w, int h) {
     for (size_t i = 0; i < (size_t)w * h; i++) if (px[i * 4 + 3] == 1) px[i * 4 + 3] = 0;
 }
 
+/* ---------------------------------------------------------------- Mods: texture packs, upscaled textures
+ * From romusan495's PR #8 (texture packs, dumping, xBR upscaling), adapted:
+ * the game's own texture is always kept too (held compare key, Mods menu). */
+/* Upscaled textures: xBR's corner rule (Hyllian's xBR, level 1) at f times
+ * the size. Each texel's four corners look at the texels around them: where
+ * those form an edge across the corner, the corner takes the neighbour's
+ * colour along a 45-degree line, smoothed over one sub-texel. Then the GPU
+ * filters the result (HD sampler), so slopes and curves stay clean instead of
+ * turning into blurred blocks. Textures repeat, so the neighbours wrap. */
+static uint8_t* g_upbuf;
+static int xdist(const uint8_t* a, const uint8_t* b) {
+    int dr = a[0] - b[0], dg = a[1] - b[1], db = a[2] - b[2], da = a[3] - b[3];
+    int y = (299 * dr + 587 * dg + 114 * db) / 1000, u = (-169 * dr - 331 * dg + 500 * db) / 1000, v = (500 * dr - 419 * dg - 81 * db) / 1000;
+    return 48 * abs(y) + 7 * abs(u) + 6 * abs(v) + 48 * abs(da);
+}
+static void xbr_upscale(const uint8_t* src, int w, int h, int f, uint8_t* dst) {
+#define XP(ox, oy) (src + ((size_t)(((y + (oy) * sy) % h + h) % h) * w + (size_t)(((x + (ox) * sx) % w + w) % w)) * 4)
+    int ow = w * f;
+    for (int y = 0; y < h; y++)
+        for (int x = 0; x < w; x++) {
+            const uint8_t* E = src + ((size_t)y * w + x) * 4;
+            const uint8_t* N[4] = { 0 };                       /* per corner (sx, sy): the colour it takes, or none */
+            for (int q = 0; q < 4; q++) {
+                int sx = q & 1 ? 1 : -1, sy = q & 2 ? 1 : -1;
+                const uint8_t *F = XP(1, 0), *H = XP(0, 1), *I = XP(1, 1), *B = XP(0, -1), *D = XP(-1, 0), *C = XP(1, -1), *G = XP(-1, 1);
+                const uint8_t *F4 = XP(2, 0), *H5 = XP(0, 2), *I4 = XP(2, 1), *I5 = XP(1, 2);
+                int wd1 = xdist(E, C) + xdist(E, G) + xdist(I, F4) + xdist(I, H5) + 4 * xdist(H, F);
+                int wd2 = xdist(H, D) + xdist(H, I5) + xdist(F, I4) + xdist(F, B) + 4 * xdist(E, I);
+                int eF = xdist(E, F), eH = xdist(E, H);
+                if (wd1 < wd2 && eF > 0 && eH > 0) N[q] = eF <= eH ? F : H;
+            }
+            for (int j = 0; j < f; j++)
+                for (int i = 0; i < f; i++) {
+                    float fx = ((float)i + 0.5f) / (float)f - 0.5f, fy = ((float)j + 0.5f) / (float)f - 0.5f;
+                    int q = (fx >= 0) | (fy >= 0) << 1;
+                    uint8_t* o = dst + ((size_t)(y * f + j) * ow + (size_t)(x * f + i)) * 4;
+                    float a = 0;
+                    if (N[q]) { float t = (fabsf(fx) + fabsf(fy) - 0.5f) * (float)f * 0.5f + 0.5f; a = t < 0 ? 0 : t > 1 ? 1 : t; }
+                    for (int c = 0; c < 4; c++) o[c] = (uint8_t)((float)E[c] + ((N[q] ? (float)N[q][c] : 0) - (float)E[c]) * a + 0.5f);
+                }
+        }
+#undef XP
+}
+
+/* ---------------------------------------------------------------- HD texture packs
+ * Each texture the game uses is known by a name made from what it looks like
+ * (a hash of its size and decoded pixels: the same picture has the same name
+ * wherever the game puts it in VRAM). textures/<name>.png (in any folder
+ * under textures/) is drawn instead, at its own size, filtered and mipmapped.
+ * "Dump textures" writes every new one to textures/dump/<name>.png, the
+ * starting point for making a pack. */
+#include "stb_image_write.h"
+#include "stb_image.h"                                         /* implemented in frontend_sdl.c */
+#ifdef _WIN32
+#include <io.h>
+#include <direct.h>
+#define mkdir_one(p) _mkdir(p)
+#else
+#include <dirent.h>
+#include <sys/stat.h>
+#define mkdir_one(p) mkdir(p, 0777)
+#endif
+
+#define PACK_DIR "textures"
+typedef struct { uint64_t key; char* path; GLuint tex; int w, h; uint64_t used; } PackTex;
+static PackTex* g_pack;                                        /* open addressing, g_pack_cap a power of two */
+static int g_pack_n, g_pack_cap, g_pack_on = 1, g_dump_on, g_pack_loaded;
+static int g_texup;                                            /* Mods > Upscale 3D textures (xbr_upscale) */
+int g_tex_compare;                                             /* held: the game's own textures, to compare */
+static int g_pack_live;                                        /* HD textures in the GPU */
+#define PACK_LIVE_MAX 3000
+static uint64_t* g_dumped; static int g_dumped_n, g_dumped_cap;
+
+static uint64_t tex_key(const uint8_t* rgba, int w, int h) {   /* FNV-1a 64 of w, h and the pixels (see-through ones as 0) */
+    uint64_t k = 0xCBF29CE484222325ull;
+    uint32_t wh[2] = { (uint32_t)w, (uint32_t)h };
+    const uint8_t* b = (const uint8_t*)wh;
+    for (int i = 0; i < 8; i++) k = (k ^ b[i]) * 0x100000001B3ull;
+    for (size_t i = 0; i < (size_t)w * h; i++) {
+        const uint8_t* p = rgba + i * 4;
+        uint32_t v = p[3] ? (uint32_t)p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24 : 0;
+        for (int j = 0; j < 4; j++, v >>= 8) k = (k ^ (v & 0xFF)) * 0x100000001B3ull;
+    }
+    return k;
+}
+
+static PackTex* pack_find(uint64_t key, int add) {
+    if (add && (g_pack_n + 1) * 2 > g_pack_cap) {               /* grow */
+        int ncap = g_pack_cap ? g_pack_cap * 2 : 1024;
+        PackTex* n = calloc((size_t)ncap, sizeof *n);
+        for (int i = 0; i < g_pack_cap; i++) if (g_pack[i].path) {
+            uint32_t j = (uint32_t)(g_pack[i].key ^ g_pack[i].key >> 32) & (uint32_t)(ncap - 1);
+            while (n[j].path) j = (j + 1) & (uint32_t)(ncap - 1);
+            n[j] = g_pack[i];
+        }
+        free(g_pack); g_pack = n; g_pack_cap = ncap;
+    }
+    if (!g_pack_cap) return NULL;
+    uint32_t j = (uint32_t)(key ^ key >> 32) & (uint32_t)(g_pack_cap - 1);
+    while (g_pack[j].path) { if (g_pack[j].key == key) return &g_pack[j]; j = (j + 1) & (uint32_t)(g_pack_cap - 1); }
+    if (!add) return NULL;
+    g_pack[j].key = key; g_pack_n++;
+    return &g_pack[j];
+}
+
+static void pack_add_file(const char* dir, const char* name) {  /* <16 hex digits>.png */
+    size_t n = strlen(name);
+    if (n != 20 || strcmp(name + 16, ".png") != 0) return;
+    uint64_t key = 0;
+    for (int i = 0; i < 16; i++) {
+        char c = name[i]; int v = c >= '0' && c <= '9' ? c - '0' : c >= 'a' && c <= 'f' ? c - 'a' + 10 : c >= 'A' && c <= 'F' ? c - 'A' + 10 : -1;
+        if (v < 0) return;
+        key = key << 4 | (uint64_t)v;
+    }
+    PackTex* t = pack_find(key, 1);
+    if (t->path) return;                                       /* the first one found wins */
+    size_t len = strlen(dir) + n + 2;
+    t->path = malloc(len); snprintf(t->path, len, "%s/%s", dir, name);
+}
+
+static void pack_scan(const char* dir, int depth) {             /* every folder under textures/ except dump/ */
+    if (depth > 8) return;
+#ifdef _WIN32
+    char pat[1024]; snprintf(pat, sizeof pat, "%s/*", dir);
+    struct _finddata_t fd; intptr_t h = _findfirst(pat, &fd);
+    if (h == -1) return;
+    do {
+        if (fd.name[0] == '.') continue;
+        if (fd.attrib & _A_SUBDIR) {
+            if (depth == 0 && !strcmp(fd.name, "dump")) continue;
+            char sub[1024]; snprintf(sub, sizeof sub, "%s/%s", dir, fd.name); pack_scan(sub, depth + 1);
+        } else pack_add_file(dir, fd.name);
+    } while (_findnext(h, &fd) == 0);
+    _findclose(h);
+#else
+    DIR* d = opendir(dir);
+    if (!d) return;
+    struct dirent* e;
+    while ((e = readdir(d))) {
+        if (e->d_name[0] == '.') continue;
+        char sub[1024]; snprintf(sub, sizeof sub, "%s/%s", dir, e->d_name);
+        struct stat st;
+        if (stat(sub, &st) == 0 && S_ISDIR(st.st_mode)) { if (!(depth == 0 && !strcmp(e->d_name, "dump"))) pack_scan(sub, depth + 1); }
+        else pack_add_file(dir, e->d_name);
+    }
+    closedir(d);
+#endif
+}
+
+static void pack_unload(void) {
+    for (int i = 0; i < g_pack_cap; i++) { if (g_pack[i].tex) p_glDeleteTextures(1, &g_pack[i].tex); free(g_pack[i].path); }
+    free(g_pack); g_pack = NULL; g_pack_n = g_pack_cap = g_pack_live = 0; g_pack_loaded = 0;
+}
+
+static void pack_load_list(void) {
+    if (g_pack_loaded) return;
+    g_pack_loaded = 1;
+    pack_scan(PACK_DIR, 0);
+    if (g_pack_n) fprintf(stderr, "HD textures: %d in %s/\n", g_pack_n, PACK_DIR);
+}
+
+/* The HD texture for this picture, loaded into the GPU the first time (0 if none). */
+static GLuint pack_texture(uint64_t key) {
+    PackTex* t = pack_find(key, 0);
+    if (!t) return 0;
+    t->used = g_frameno;
+    if (t->tex) return t->tex;
+    if (t->w < 0) return 0;                                    /* couldn't be read */
+    int w, h, ch;
+    uint8_t* px = stbi_load(t->path, &w, &h, &ch, 4);
+    if (!px) { fprintf(stderr, "HD textures: can't read %s\n", t->path); t->w = -1; return 0; }
+    if (g_pack_live >= PACK_LIVE_MAX) {                        /* too many in the GPU: let the least recently used one go */
+        PackTex* lru = NULL;
+        for (int i = 0; i < g_pack_cap; i++) if (g_pack[i].tex && g_pack[i].used != g_frameno && (!lru || g_pack[i].used < lru->used)) lru = &g_pack[i];
+        if (lru) {
+            for (int i = 0; i < TEXCACHE; i++) if (g_texcache[i].live && g_texcache[i].pk == lru->tex) { g_texcache[i].w = 0; g_texcache[i].pk = 0; g_texcache[i].alt = 0; }   /* those decode again */
+            p_glDeleteTextures(1, &lru->tex); lru->tex = 0; g_pack_live--;
+        }
+    }
+    p_glGenTextures(1, &t->tex);
+    p_glBindTexture(GL_TEXTURE_2D, t->tex);
+    p_glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, px);
+    p_glGenerateMipmap(GL_TEXTURE_2D);
+    stbi_image_free(px);
+    t->w = w; t->h = h; g_pack_live++;
+    return t->tex;
+}
+
+static void dump_texture(uint64_t key, const uint8_t* rgba, int w, int h) {
+    for (int i = 0; i < g_dumped_n; i++) if (g_dumped[i] == key) return;   /* (few thousand at most) */
+    if (g_dumped_n == g_dumped_cap) { g_dumped_cap = g_dumped_cap ? g_dumped_cap * 2 : 1024; g_dumped = realloc(g_dumped, sizeof *g_dumped * (size_t)g_dumped_cap); }
+    g_dumped[g_dumped_n++] = key;
+    char path[64]; snprintf(path, sizeof path, PACK_DIR "/dump/%016llx.png", (unsigned long long)key);
+    FILE* f = fopen(path, "rb");
+    if (f) { fclose(f); return; }                              /* dumped in an earlier run */
+    mkdir_one(PACK_DIR); mkdir_one(PACK_DIR "/dump");
+    stbi_write_png(path, w, h, 4, rgba, w * 4);
+}
+
+static void texcache_redo(void) { for (int i = 0; i < TEXCACHE; i++) g_texcache[i].w = 0; }   /* every texture decodes again */
+
+void gl_set_texture_pack(int on) { g_pack_on = on != 0; if (!g_pack_on) pack_unload(); texcache_redo(); }
+void gl_set_tex_upscale(int on) { on = on != 0; if (on != g_texup) { g_texup = on; texcache_redo(); } }
+void gl_set_texture_dump(int on) { g_dump_on = on != 0; texcache_redo(); }
+int gl_reload_texture_pack(void) { pack_unload(); texcache_redo(); if (g_pack_on) pack_load_list(); return g_pack_n; }
+
 static int g_hd_text = 0;
 int tx_tex_tagged(uint32_t teximg);
 
@@ -751,14 +959,35 @@ static GLuint texture_for(uint32_t ti, uint32_t pl, int* w, int* h, int* hd) {
                     p_glGenerateMipmap(GL_TEXTURE_2D);
                 }
             }
+            e->alt = 0; e->pk = 0;
+            if (!e->hd && (g_pack_on || g_dump_on)) {              /* Mods: a texture pack's picture for it, and dumping */
+                if (g_pack_on) pack_load_list();
+                uint64_t key = tex_key(g_decode, *w, *h);
+                if (g_dump_on) dump_texture(key, g_decode, *w, *h);
+                if (g_pack_on && g_pack_n && (e->pk = pack_texture(key))) e->alt = 1;
+            }
+            if (!e->hd && !e->alt && g_texup && *w * *h <= 256 * 256) {   /* Mods: upscaled, 4x (2x for the big ones) */
+                static uint8_t up_src[256 * 256 * 4];
+                int f = *w * *h <= 128 * 128 ? 4 : 2;
+                memcpy(up_src, g_decode, (size_t)*w * *h * 4);
+                bleed(up_src, *w, *h);
+                if (!g_upbuf) g_upbuf = malloc((size_t)512 * 512 * 16);
+                xbr_upscale(up_src, *w, *h, f, g_upbuf);
+                if (!e->up) p_glGenTextures(1, &e->up);
+                p_glBindTexture(GL_TEXTURE_2D, e->up);
+                p_glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, *w * f, *h * f, 0, GL_RGBA, GL_UNSIGNED_BYTE, g_upbuf);
+                p_glGenerateMipmap(GL_TEXTURE_2D);
+                e->alt = 2;
+            }
             if (g_smooth && !e->hd) bleed(g_decode, *w, *h);
-            if (!e->hd) {
+            if (!e->hd) {                                        /* the game's own (also kept for the compare key) */
             p_glBindTexture(GL_TEXTURE_2D, e->tex);
             p_glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, *w, *h, 0, GL_RGBA, GL_UNSIGNED_BYTE, g_decode);
             }
             g_gl_stats.uploads++; g_gl_stats.upload_texels += *w * *h; g_gl_stats.upload_ms += perf_ms() - t0;
         }
     }
+    if (e->alt && !e->hd && !g_tex_compare) { if (hd) *hd = 1; return e->alt == 1 ? e->pk : e->up; }
     if (hd) *hd = e->hd;
     return e->tex;
 }

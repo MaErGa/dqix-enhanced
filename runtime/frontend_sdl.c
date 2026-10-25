@@ -66,6 +66,7 @@ static SDL_Window* g_win2;                                        /* ...the seco
 static int g_win2_full, g_win2_rect[4];                           /* ...fullscreen; where it was as a window (w = 0: not yet) */
 static int g_wide_pop;                                            /* widescreen: the small screen in its own window (the field alone) */
 static int g_smooth = 0;                                          /* Enhanced: smooth (filtered) textures */
+static int g_tex_pack = 1, g_tex_up = 0, g_tex_dump = 0;           /* Mods (gl_render.c) */
 static int g_hd_text = 0;                                            /* Enhanced: the game's letters redrawn at full resolution (text_hd.h) */
 static int g_res_auto = 1;                                        /* 3D resolution: as sharp as the screen shows it (else g_scale3d) */
 static int g_small_opacity = 50;                                  /* widescreen: how solid the small screen over the field is (O), % */
@@ -530,6 +531,8 @@ static void settings_load(void) {
         else if (!strcmp(key, "soft_shadows")) g_gl_soft_alpha = atoi(val) != 0;
         else if (!strcmp(key, "smooth_shading")) g_gl_soft_shade = atoi(val) != 0;
         else if (!strcmp(key, "hd_text")) g_hd_text = atoi(val) != 0;
+        else if (!strcmp(key, "texture_packs")) g_tex_pack = atoi(val) != 0;
+        else if (!strcmp(key, "upscale_textures")) g_tex_up = atoi(val) != 0;
         else if (!strcmp(key, "hd_text_shadows")) g_tx_shadows = atoi(val) != 0;
         else if (!strcmp(key, "small_screen_opacity")) { int v = atoi(val); if (v >= 10 && v <= 100) opacity_saved = v; }
         else if (!strcmp(key, "second_window")) { int r[4]; if (sscanf(val, "%d,%d,%d,%d", &r[0], &r[1], &r[2], &r[3]) == 4 && r[2] > 0 && r[3] > 0) memcpy(g_win2_rect, r, sizeof r); }
@@ -588,6 +591,10 @@ static void settings_save(void) {
     fprintf(f, "smooth_shading = %d\n", g_gl_soft_shade != 0);
     fprintf(f, "# enhanced: HD text, the game's letters drawn again at full resolution from fonts/main.ttf and fonts/small.ttf: 0 or 1 (F1)\n");
     fprintf(f, "hd_text = %d\n", g_hd_text);
+    fprintf(f, "# Mods: texture packs (PNGs in the textures folder drawn instead of the game's): 0 or 1\n");
+    fprintf(f, "texture_packs = %d\n", g_tex_pack);
+    fprintf(f, "# Mods: the 3D textures upscaled 4x with xBR: 0 or 1\n");
+    fprintf(f, "upscale_textures = %d\n", g_tex_up);
     fprintf(f, "# HD text: keep the letters' shadows and outlines (0: plain letters)\n");
     fprintf(f, "hd_text_shadows = %d\n", g_tx_shadows);
     fprintf(f, "# widescreen: the small screen (map, battle commands) in a window of its own: 0 or 1\n");
@@ -760,6 +767,7 @@ static int try_gl(void) {
     if (getenv("DQIX_HDTEXT")) g_hd_text = atoi(getenv("DQIX_HDTEXT")) != 0;   /* tests */
     gl_hd_fonts("fonts");
     gl_set_hd_text(g_hd_text);
+    gl_set_texture_pack(g_tex_pack); gl_set_tex_upscale(g_tex_up);
     if (!gl_render_init(g_res_auto ? (getenv("DQIX_AUTO_FROM") ? 2 : 4) : g_scale3d)) {
         fprintf(stderr, "OpenGL renderer failed to start: using the software renderer\n");
         SDL_GL_DeleteContext(g_glctx); SDL_DestroyWindow(g_win); g_win = NULL; return 0;
@@ -1484,6 +1492,8 @@ static void menu_sync(void) {
     menu_check(MI_HUD, g_hud && wide); menu_enable(MI_HUD, g_gl);
     menu_check(MI_SMOOTH, g_smooth); menu_enable(MI_SMOOTH, g_gl && !g_classic);
     menu_check(MI_HD_TEXT, g_hd_text != 0); menu_enable(MI_HD_TEXT, g_gl != 0);
+    menu_check(MI_TEXPACK, g_tex_pack); menu_check(MI_TEXUP, g_tex_up); menu_check(MI_TEXDUMP, g_tex_dump);
+    for (int i = MI_TEXPACK; i <= MI_TEXFOLDER; i++) menu_enable(i, g_gl != 0);
     menu_check(MI_SOFT_SHADOWS, g_gl_soft_alpha != 0); menu_enable(MI_SOFT_SHADOWS, g_gl && !g_classic);
     menu_check(MI_SMOOTH_SHADE, g_gl_soft_shade != 0); menu_enable(MI_SMOOTH_SHADE, g_gl && !g_classic);
     for (int i = 0; i < 3; i++) { menu_check(MI_OUTLINE0 + i, g_gl_outline == (i == 0 ? 1 : i == 1 ? 2 : 0)); menu_enable(MI_OUTLINE0 + i, g_gl && !g_classic); }
@@ -1677,6 +1687,17 @@ static void url_add(char* out, size_t n, const char* s) {
     out[k] = 0;
 }
 
+static void open_folder(const char* path) {
+#ifdef _WIN32
+    char full[MAX_PATH]; if (!GetFullPathNameA(path, sizeof full, full, NULL)) return;
+    char cmd[MAX_PATH + 40]; snprintf(cmd, sizeof cmd, "explorer.exe \"%s\"", full);
+    STARTUPINFOA si; memset(&si, 0, sizeof si); si.cb = sizeof si;
+    PROCESS_INFORMATION pi;
+    if (CreateProcessA(NULL, cmd, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi)) { CloseHandle(pi.hThread); CloseHandle(pi.hProcess); }
+#else
+    char url[700]; snprintf(url, sizeof url, "file://%s", path); SDL_OpenURL(url);
+#endif
+}
 static void show_in_folder(const char* path) {
 #ifdef _WIN32
     char full[MAX_PATH]; if (!GetFullPathNameA(path, sizeof full, full, NULL)) return;
@@ -2164,6 +2185,33 @@ static void do_action(int id) {
     case MI_RES_AUTO: if (g_gl && !g_classic) g_res_auto = 1; break;          /* auto_scale() picks it */
     case MI_SMOOTH: if (g_gl) { g_smooth = !g_smooth; gl_set_smooth(g_smooth); } break;
     case MI_SCENE_BARS: scene_toggle_bars(); break;
+    case MI_TEXPACK:
+        g_tex_pack = !g_tex_pack; gl_set_texture_pack(g_tex_pack);
+        if (g_tex_pack) { int n = gl_reload_texture_pack(); notice(n ? "Texture packs: %d pictures" : "Texture packs on (the textures folder has none yet)", n); }
+        else notice("Texture packs off: the game's own textures");
+        break;
+    case MI_TEXUP: g_tex_up = !g_tex_up; gl_set_tex_upscale(g_tex_up); notice("Upscaled 3D textures: %s", g_tex_up ? "on (hold ` to compare)" : "off"); break;
+    case MI_TEXDUMP: g_tex_dump = !g_tex_dump; gl_set_texture_dump(g_tex_dump); notice(g_tex_dump ? "Dumping textures to textures\\dump" : "Dumping off"); break;
+    case MI_TEXRELOAD: { int n = gl_reload_texture_pack(); notice("Texture packs: %d pictures", n); break; }
+    case MI_TEXFOLDER: {
+#ifdef _WIN32
+        _mkdir("textures");
+#else
+        mkdir("textures", 0777);
+#endif
+        open_folder("textures");
+        break;
+    }
+    case MI_MODS_HELP:
+        info_box(SDL_MESSAGEBOX_INFORMATION, "Mods",
+            "Texture packs: PNG pictures in the textures folder (next to the game) are drawn instead of the game's own textures, "
+            "in Enhanced mode. Each is named after the texture it replaces.\n\n"
+            "To make one: turn on Dump textures and play. Every texture shown is saved in textures\\dump. Redraw or upscale those "
+            "PNGs (keep their names and see-through parts) and put them anywhere in the textures folder outside dump, "
+            "then Reload the texture packs.\n\n"
+            "Upscale the 3D textures: the game's textures enlarged 4x with xBR, so slopes and curves stay smooth (a pack's pictures come first).\n\n"
+            "Hold ` (the key left of 1) to see the game's own textures, to compare.", g_win);
+        break;
     case MI_HD_TEXT:
         if (g_gl) {
             g_hd_text = !g_hd_text; gl_set_hd_text(g_hd_text);
@@ -2515,6 +2563,7 @@ void frontend_frame(void) {
             g_pad_resync = 0;
             /* widescreen: the other screen shows while the swap button is held */
             if (g_peek && !controls_key_held(CA_SWAP, ks) && !controls_pad_held(CA_SWAP, g_pad)) g_peek = 0;
+            g_tex_compare = controls_key_held(CA_COMPARE, ks) || controls_pad_held(CA_COMPARE, g_pad);
             if (!wide_now()) g_peek = 0;
             { static int tp = -1; if (tp < 0) tp = getenv("DQIX_TEST_PEEK") != NULL; if (tp && wide_now()) g_peek = 1; }   /* tests */
             /* reset: Start + Select + L + R held for a second on the controller (wherever they are mapped) */

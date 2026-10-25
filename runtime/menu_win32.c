@@ -160,6 +160,15 @@ void menu_init(SDL_Window* win, const char* const* shell_names, int n_shells) {
     item(modern, MI_HUD, L"Widescreen: battle &HUD over the 3D (experimental: the party's panels in the bottom left)");
     sep(modern);
     item(modern, MI_MODERN_HELP, L"&What is this?");
+    HMENU mods = sub(g_bar, L"M&ods");
+    item(mods, MI_TEXPACK, L"&Texture packs (the pictures in the textures folder)");
+    item(mods, MI_TEXUP, L"&Upscale the 3D textures (xBR: smooth slopes and curves)");
+    item(mods, MI_TEXRELOAD, L"&Reload the texture packs");
+    item(mods, MI_TEXFOLDER, L"&Open the textures folder");
+    sep(mods);
+    item(mods, MI_TEXDUMP, L"&Dump textures (to make a pack: every texture shown goes to textures\\dump)");
+    sep(mods);
+    item(mods, MI_MODS_HELP, L"&What is this?");
     HMENU lang = sub(g_bar, L"&Language");
     item(lang, MI_LANG1, L"&English");
     item(lang, MI_LANG1 + 1, L"&Fran\u00e7ais");
