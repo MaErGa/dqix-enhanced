@@ -771,7 +771,7 @@ static int try_gl(void) {
     if (getenv("DQIX_SOFTSHADE")) g_gl_soft_shade = atoi(getenv("DQIX_SOFTSHADE"));   /* tests */
     gl_set_smooth(g_smooth);
     if (getenv("DQIX_HDTEXT")) g_hd_text = atoi(getenv("DQIX_HDTEXT")) != 0;   /* tests */
-    gl_hd_fonts("fonts");
+    gl_hd_fonts(getenv("DQIX_TXFONTS") ? getenv("DQIX_TXFONTS") : "fonts");   /* (tests: replays run elsewhere) */
     gl_set_hd_text(g_hd_text);
     gl_set_texture_pack(g_tex_pack); gl_set_tex_upscale(g_tex_up);
     if (!gl_render_init(g_res_auto ? (getenv("DQIX_AUTO_FROM") ? 2 : 4) : g_scale3d)) {
