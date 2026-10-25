@@ -3,7 +3,7 @@ adventure; try this one in its own folder with a copy of your save.
 
 **New in nightly3**
 - **The European version** (Europe, game code YDQP) builds and plays,
-  in English, French, German, Italian or Spanish: the new **Language** menu.
+  in English, French, German, Italian or Spanish: **Game > Language**.
   Thanks to romusan495.
 - **Linux**: an AppImage that builds the game from your ROM, with a window
   to choose it and follow the build. Thanks to rakmahefa.
@@ -17,7 +17,17 @@ adventure; try this one in its own folder with a copy of your save.
     keep their names, put them in `textures`, then *Reload*.
   - **Upscale the 3D textures** (off at first): xBR, 4x.
   - Hold **`** (left of 1) to see the game's own textures, to compare.
-  Thanks to romusan495, whose code this is built on.
+  Thanks to romusan495, whose code the texture packs are built on.
+  - **Music packs**: OGG or FLAC recordings in the `music` folder play
+    instead of the game's songs, each named after the song it replaces
+    (`BG_012.ogg`). *Open the music folder* lists every song in
+    `songs.txt`, and *Show each song's name as it starts* tells you which
+    one is playing. Songs loop on the usual `LOOPSTART` / `LOOPLENGTH`
+    tags (else the whole file); jingles (`ME_`) play once. The game's
+    fades, pauses and stops carry over, and the original keeps its timing
+    silently, so nothing waits differently. `music_pack_volume` in
+    settings.ini sets their level. While playing together, the game's own
+    music plays.
 - **Widescreen**:
   - The poison bog's flash, the "Some days later..." card, the Battle
     Records card and white flashes cover the sides too (they reached one

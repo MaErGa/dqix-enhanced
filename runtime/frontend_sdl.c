@@ -36,6 +36,7 @@
 #include "frontend.h"
 #include "gl_render.h"
 #include "discord.h"
+#include "music.h"
 #include "text_hd.h"
 #include "menu.h"
 #include "version.h"
@@ -69,6 +70,7 @@ static int g_wide_pop;                                            /* widescreen:
 static int g_smooth = 0;                                          /* Enhanced: smooth (filtered) textures */
 static int g_discord = 1;                                         /* Modern > Show on Discord what I'm playing (discord.c) */
 static int g_tex_pack = 1, g_tex_up = 0, g_tex_dump = 0;           /* Mods (gl_render.c) */
+static int g_mus_pack = 1, g_mus_names = 0, g_mus_vol = 70;      /* Mods: music packs (music.c) */
 static int g_hd_text = 0;                                            /* Enhanced: the game's letters redrawn at full resolution (text_hd.h) */
 static int g_res_auto = 1;                                        /* 3D resolution: as sharp as the screen shows it (else g_scale3d) */
 static int g_small_opacity = 50;                                  /* widescreen: how solid the small screen over the field is (O), % */
@@ -534,6 +536,9 @@ static void settings_load(void) {
         else if (!strcmp(key, "smooth_shading")) g_gl_soft_shade = atoi(val) != 0;
         else if (!strcmp(key, "hd_text")) g_hd_text = atoi(val) != 0;
         else if (!strcmp(key, "texture_packs")) g_tex_pack = atoi(val) != 0;
+        else if (!strcmp(key, "music_packs")) g_mus_pack = atoi(val) != 0;
+        else if (!strcmp(key, "music_song_names")) g_mus_names = atoi(val) != 0;
+        else if (!strcmp(key, "music_pack_volume")) { int v = atoi(val); if (v >= 0 && v <= 200) g_mus_vol = v; }
         else if (!strcmp(key, "discord")) g_discord = atoi(val) != 0;
         else if (!strcmp(key, "discord_app_id")) discord_set_app_id(val);
         else if (!strcmp(key, "upscale_textures")) g_tex_up = atoi(val) != 0;
@@ -599,6 +604,12 @@ static void settings_save(void) {
     fprintf(f, "discord = %d\n", g_discord);
     fprintf(f, "# Mods: texture packs (PNGs in the textures folder drawn instead of the game's): 0 or 1\n");
     fprintf(f, "texture_packs = %d\n", g_tex_pack);
+    fprintf(f, "# Mods: music packs (OGG / FLAC recordings in the music folder played instead of the game's songs): 0 or 1\n");
+    fprintf(f, "music_packs = %d\n", g_mus_pack);
+    fprintf(f, "# Mods: a notice with each song's name as it starts (to find which file replaces it): 0 or 1\n");
+    fprintf(f, "music_song_names = %d\n", g_mus_names);
+    fprintf(f, "# Mods: how loud the recordings are against the game's sounds, in %% (0 to 200)\n");
+    fprintf(f, "music_pack_volume = %d\n", g_mus_vol);
     fprintf(f, "# Mods: the 3D textures upscaled 4x with xBR: 0 or 1\n");
     fprintf(f, "upscale_textures = %d\n", g_tex_up);
     fprintf(f, "# HD text: keep the letters' shadows and outlines (0: plain letters)\n");
@@ -893,6 +904,7 @@ void frontend_init(int argc, char** argv) {
         if (!g_wireless.mac_set && !g_headless) { wireless_mac_new(); settings_save(); }
     }
     wireless_apply(1);                                          /* read by firmware_init */
+    if (!g_headless) { music_set_volume(g_mus_vol); music_enable(g_mus_pack); }   /* music packs (music.c; off in replays and sessions) */
     if (g_opt.dlc) backup_unlock_dlc();                        /* before the game reads the save */
     if (getenv("DQIX_MODE")) g_classic = strcmp(getenv("DQIX_MODE"), "enhanced") != 0;   /* tests */
     /* real pixels on high-DPI Windows setups (not stretched by the system), so
@@ -1505,6 +1517,7 @@ static void menu_sync(void) {
     menu_check(MI_DISCORD, g_discord && discord_available()); menu_enable(MI_DISCORD, discord_available());
     menu_check(MI_TEXPACK, g_tex_pack); menu_check(MI_TEXUP, g_tex_up); menu_check(MI_TEXDUMP, g_tex_dump);
     for (int i = MI_TEXPACK; i <= MI_TEXFOLDER; i++) menu_enable(i, g_gl != 0);
+    menu_check(MI_MUSPACK, g_mus_pack); menu_check(MI_MUSNAMES, g_mus_names);
     menu_check(MI_SOFT_SHADOWS, g_gl_soft_alpha != 0); menu_enable(MI_SOFT_SHADOWS, g_gl && !g_classic);
     menu_check(MI_SMOOTH_SHADE, g_gl_soft_shade != 0); menu_enable(MI_SMOOTH_SHADE, g_gl && !g_classic);
     for (int i = 0; i < 3; i++) { menu_check(MI_OUTLINE0 + i, g_gl_outline == (i == 0 ? 1 : i == 1 ? 2 : 0)); menu_enable(MI_OUTLINE0 + i, g_gl && !g_classic); }
@@ -2214,6 +2227,25 @@ static void do_action(int id) {
         open_folder("textures");
         break;
     }
+    case MI_MUSPACK: {
+        g_mus_pack = !g_mus_pack;
+        int n = music_enable(g_mus_pack && !session_running());
+        if (!g_mus_pack) notice("Music packs off: the game's own music (from the next song)");
+        else notice(n ? "Music packs: %d songs replaced (from the next time each starts)" : "Music packs on (the music folder has no songs yet)", n);
+        break;
+    }
+    case MI_MUSRELOAD: { int n = music_reload(); notice("Music packs: %d songs replaced (from the next time each starts)", n); break; }
+    case MI_MUSNAMES: g_mus_names = !g_mus_names; notice(g_mus_names ? "Each song's name shows as it starts" : "Song names off"); break;
+    case MI_MUSFOLDER: {
+#ifdef _WIN32
+        _mkdir("music");
+#else
+        mkdir("music", 0777);
+#endif
+        music_write_list("music/songs.txt");
+        open_folder("music");
+        break;
+    }
     case MI_MODS_HELP:
         info_box(SDL_MESSAGEBOX_INFORMATION, "Mods",
             "Texture packs: PNG pictures in the textures folder (next to the game) are drawn instead of the game's own textures, "
@@ -2222,7 +2254,12 @@ static void do_action(int id) {
             "PNGs (keep their names and see-through parts) and put them anywhere in the textures folder outside dump, "
             "then Reload the texture packs.\n\n"
             "Upscale the 3D textures: the game's textures enlarged 4x with xBR, so slopes and curves stay smooth (a pack's pictures come first).\n\n"
-            "Hold ` (the key left of 1) to see the game's own textures, to compare.", g_win);
+            "Hold ` (the key left of 1) to see the game's own textures, to compare.\n\n"
+            "Music packs: OGG or FLAC recordings in the music folder play instead of the game's songs. Each is named after the "
+            "song it replaces (BG_012.ogg); Open the music folder lists them all in songs.txt, and Show each song's name tells you "
+            "which one is playing. Songs loop between the LOOPSTART and LOOPLENGTH tags (in samples) if the file has them, "
+            "else the whole file; jingles (ME_) play once. The game's fades and pauses carry over. "
+            "music_pack_volume in settings.ini sets how loud they are. While playing together (Wireless) the game's own music plays.", g_win);
         break;
     case MI_HD_TEXT:
         if (g_gl) {
@@ -2560,6 +2597,11 @@ void frontend_frame(void) {
     { extern double g_t2d_ms; static double last; pr->d2 = (float)(g_t2d_ms - last); last = g_t2d_ms; }
     pr->audio_ms = (int)(sound_buffered() * 1000 / 32768);
     handle_events();
+    if (!g_headless) {                                          /* music packs: not while playing together (each DS's memory must match) */
+        static int was = -1; int want = g_mus_pack && !session_running();
+        if (want != was) { if (was >= 0 || !want) music_enable(want); was = want; }
+        char nm[64]; if (music_now(nm, sizeof nm) && g_mus_names && g_win) notice("Music: %s", nm);   /* Mods > Show each song's name */
+    }
     if (g_win) {
         const Uint8* ks = SDL_GetKeyboardState(NULL);
         g_fe_keys = key_bits(ks) | pad_bits();

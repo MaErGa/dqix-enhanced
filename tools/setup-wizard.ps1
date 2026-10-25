@@ -42,7 +42,7 @@ function Test-Rom([string]$Path) {
 function Test-RomCode([string]$code) {
     switch ($code) {
         'YDQE' { return @{ Ok = $true; Warn = $false; Text = 'Dragon Quest IX (USA).' } }
-        'YDQP' { return @{ Ok = $true; Warn = $false; Text = 'Dragon Quest IX (Europe). English, French, German, Italian or Spanish: choose in the Language menu.' } }
+        'YDQP' { return @{ Ok = $true; Warn = $false; Text = 'Dragon Quest IX (Europe). English, French, German, Italian or Spanish: choose in Game > Language.' } }
         'YDQJ' { return @{ Ok = $true; Warn = $true; Text = "Dragon Quest IX (Japan). Only the USA and European versions are supported: this one may not build or may not run, but you can try." } }
         default { return @{ Ok = $true; Warn = $true; Text = "This doesn't look like a Dragon Quest IX ROM (game code '$code'). It will most likely not build, but you can try." } }
     }

@@ -81,7 +81,7 @@ original)
 
 You need your own Dragon Quest IX cartridge's ROM (`.nds`; the USA or
 European version, others can be tried; the European one plays in the language
-chosen in the Language menu), Windows 10 or 11 (64-bit), about 3 GB of free space, and the internet the
+chosen in Game > Language), Windows 10 or 11 (64-bit), about 3 GB of free space, and the internet the
 first time.
 
 1. Download the latest **stable** release from the
@@ -183,5 +183,6 @@ you dumped from your own cartridge.
 
 Licence: GPL-3.0-or-later (see `LICENSE`). It includes public-domain data
 from the DQIX decompilation project (`config/`), libslirp (BSD,
-`third_party/libslirp`) and stb_truetype (public domain), and translated
+`third_party/libslirp`), stb_truetype, stb_image and stb_vorbis (public
+domain), dr_flac (public domain / MIT-0), and translated
 parts of melonDS (GPL-3.0-or-later).

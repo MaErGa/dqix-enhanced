@@ -39,6 +39,12 @@ void menu_init(SDL_Window* win, const char* const* shell_names, int n_shells) {
     item(game, MI_VOLUME, L"&Volume...\t- / =");
     item(game, MI_MUTE, L"&Mute");
     item(game, MI_CONTROLS_EDIT, L"&Controls...");
+    HMENU lang = sub(game, L"&Language (European version)");      /* (here, not on the bar: a wider bar wraps in a small window) */
+    item(lang, MI_LANG1, L"&English");
+    item(lang, MI_LANG1 + 1, L"&Fran\u00e7ais");
+    item(lang, MI_LANG1 + 2, L"&Deutsch");
+    item(lang, MI_LANG1 + 3, L"&Italiano");
+    item(lang, MI_LANG1 + 4, L"E&spa\u00f1ol");
     sep(game);
     HMENU sf = sub(game, L"Save &file");
     item(sf, MI_SAVE_EXPORT, L"&Export your save (a copy)...");
@@ -168,13 +174,12 @@ void menu_init(SDL_Window* win, const char* const* shell_names, int n_shells) {
     sep(mods);
     item(mods, MI_TEXDUMP, L"&Dump textures (to make a pack: every texture shown goes to textures\\dump)");
     sep(mods);
+    item(mods, MI_MUSPACK, L"&Music packs (the recordings in the music folder)");
+    item(mods, MI_MUSRELOAD, L"R&eload the music");
+    item(mods, MI_MUSFOLDER, L"O&pen the music folder (and its list of the songs)");
+    item(mods, MI_MUSNAMES, L"&Show each song's name as it starts");
+    sep(mods);
     item(mods, MI_MODS_HELP, L"&What is this?");
-    HMENU lang = sub(g_bar, L"&Language");
-    item(lang, MI_LANG1, L"&English");
-    item(lang, MI_LANG1 + 1, L"&Fran\u00e7ais");
-    item(lang, MI_LANG1 + 2, L"&Deutsch");
-    item(lang, MI_LANG1 + 3, L"&Italiano");
-    item(lang, MI_LANG1 + 4, L"E&spa\u00f1ol");
     HMENU help = sub(g_bar, L"&Help");
     item(help, MI_CONTROLS, L"&Controls");
     item(help, MI_UPDATE, L"Check for &updates...");
