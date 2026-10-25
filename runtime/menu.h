@@ -18,6 +18,8 @@ enum {
     MI_OPACITY1 = 220,                                                  /* 100, 75, 50, 25% (+0..3) */
     MI_WIDE_DYN = 240, MI_SINGLE, MI_RESET, MI_VOLUME, MI_MUTE, MI_CONTROLS_EDIT,
     MI_CORNER0 = 250,                                                   /* + 0..3: top left, top right, bottom right, bottom left */
+    MI_OUTLINE0 = 260,                                                  /* + 0..2: thin, medium, like the DS */
+    MI_SCENE_BARS = 263, MI_SAVE_EXPORT, MI_SAVE_IMPORT,
     MI_SSIZE0 = 254,                                                    /* + 0..2: small, medium, large */
     MI_SEND_REPORT = 210,
 };
@@ -31,6 +33,12 @@ void menu_strip(int on);
 /* After leaving fullscreen: make sure the window has its frame back (title
  * bar, borders: it could come back as a bare popup stuck in the corner). */
 void window_fix_frame(SDL_Window* win);
+/* Put a file on the clipboard, as Explorer's Copy does: Ctrl+V in a browser
+ * (GitHub) or Discord attaches it. 1 if done (Windows). */
+int clipboard_set_file(const char* path);
+/* Windows' Open / Save As box. filter: "Saves (*.sav;*.dsv)|*.sav;*.dsv|All files|*.*".
+ * 1 with the chosen path in out (UTF-8), 0 if cancelled or not on Windows. */
+int file_dialog(SDL_Window* win, int save, const char* title, const char* filter, const char* default_name, char* out, size_t n);
 /* the second window (two windows): a bar with only Fullscreen (MI_FULL2) */
 void menu_init_second(SDL_Window* win);
 void menu_show_second(int on);

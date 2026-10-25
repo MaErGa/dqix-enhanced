@@ -1552,6 +1552,10 @@ static int ysort_cmp(const void* a, const void* b) {
 static Poly g_gl_polys[POLY_MAX];
 static const Poly* g_gl_order[POLY_MAX];
 static void gl_frame(void) {
+    {   static long long from = -2;                              /* DQIX_PRESENT_FROM=frame: no 3D drawn before it (tests: fast replays) */
+        if (from == -2) { const char* e = getenv("DQIX_PRESENT_FROM"); from = e ? atoll(e) : -1; }
+        if (from >= 0 && g_frame + 2 < (uint64_t)from) return;
+    }
     int n = 0, nop = 0;
     HPoly** list = render_list; u32 count = render_n;
     if (w_render_side > 0) { list = wrender_list; count = wrender_n; }

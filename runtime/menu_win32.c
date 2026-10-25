@@ -5,6 +5,8 @@
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#include <shlobj.h>                                        /* DROPFILES (a file on the clipboard) */
+#include <commdlg.h>                                       /* Open / Save As */
 #include "SDL_syswm.h"
 #include <string.h>
 #include <wchar.h>
@@ -31,12 +33,16 @@ void menu_init(SDL_Window* win, const char* const* shell_names, int n_shells) {
 
     HMENU game = sub(g_bar, L"&Game");
     item(game, MI_PAUSE, L"&Pause\tP");
-    item(game, MI_TURBO, L"&Fast forward\t(or hold Tab)");
+    item(game, MI_TURBO, L"&Fast forward\tTab");
     item(game, MI_RESET, L"&Reset...\tCtrl+R");
     sep(game);
     item(game, MI_VOLUME, L"&Volume...\t- / =");
     item(game, MI_MUTE, L"&Mute");
     item(game, MI_CONTROLS_EDIT, L"&Controls...");
+    sep(game);
+    HMENU sf = sub(game, L"Save &file");
+    item(sf, MI_SAVE_EXPORT, L"&Export your save (a copy)...");
+    item(sf, MI_SAVE_IMPORT, L"&Import a save (from another copy or an emulator)...");
     sep(game);
     item(game, MI_SHOT, L"Save &screenshot\tF12");
     item(game, MI_REPORT, L"Save &bug report\tF10");
@@ -57,6 +63,10 @@ void menu_init(SDL_Window* win, const char* const* shell_names, int n_shells) {
     sep(res);
     item(res, MI_RES_AUTO, L"&Auto: as sharp as your screen (up to 12x)");
     item(gfx, MI_SMOOTH, L"&Smooth textures (Enhanced)");
+    HMENU ol = sub(gfx, L"Character &outlines (Enhanced)");
+    item(ol, MI_OUTLINE0, L"&Thin (clean, like emulators at a high resolution)");
+    item(ol, MI_OUTLINE0 + 1, L"&Medium");
+    item(ol, MI_OUTLINE0 + 2, L"Like the &DS (thicker, follows the polygons)");
 
     HMENU scr = sub(g_bar, L"&Screen");
     item(scr, MI_LCD, L"&DS Lite screen\tF6");
@@ -143,6 +153,7 @@ void menu_init(SDL_Window* win, const char* const* shell_names, int n_shells) {
     item(modern, MI_WIDE_DYN, L"Widescreen, d&ynamic (experimental)");
     item(modern, MI_CORNER, L"Top screen in the &corner (the field as on the DS)");
     item(modern, MI_POPOUT, L"Widescreen: the small screen in its own &window (a clean field)");
+    item(modern, MI_SCENE_BARS, L"Widescreen: &black sides in this place (remembered)");
     sep(modern);
     item(modern, MI_MODERN_HELP, L"&What is this?");
     HMENU help = sub(g_bar, L"&Help");
@@ -204,6 +215,48 @@ void menu_strip(int on) {
         if (h > 4 && h < 200) SetWindowPos(g_strip, HWND_TOP, mi.rcMonitor.left, mi.rcMonitor.top, w, h, SWP_NOACTIVATE);
     }
     DrawMenuBar(g_strip);
+}
+
+int file_dialog(SDL_Window* win, int save, const char* title, const char* filter, const char* default_name, char* out, size_t n) {
+    SDL_SysWMinfo info; SDL_VERSION(&info.version);
+    HWND owner = win && SDL_GetWindowWMInfo(win, &info) && info.subsystem == SDL_SYSWM_WINDOWS ? info.info.win.window : NULL;
+    wchar_t wtitle[200], wfilter[400], file[MAX_PATH] = L"";
+    MultiByteToWideChar(CP_UTF8, 0, title, -1, wtitle, 200);
+    int fl = MultiByteToWideChar(CP_UTF8, 0, filter, -1, wfilter, 398);
+    if (fl <= 0) return 0;
+    for (int i = 0; i < fl; i++) if (wfilter[i] == L'|') wfilter[i] = 0;           /* "a|b|c|d" -> "a\0b\0c\0d\0\0" */
+    wfilter[fl] = 0;
+    if (default_name) MultiByteToWideChar(CP_UTF8, 0, default_name, -1, file, MAX_PATH);
+    OPENFILENAMEW o; memset(&o, 0, sizeof o);
+    o.lStructSize = sizeof o; o.hwndOwner = owner; o.lpstrFilter = wfilter; o.lpstrFile = file; o.nMaxFile = MAX_PATH;
+    o.lpstrTitle = wtitle; o.lpstrDefExt = L"sav";
+    o.Flags = OFN_NOCHANGEDIR | (save ? OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST : OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST);
+    if (!(save ? GetSaveFileNameW(&o) : GetOpenFileNameW(&o))) return 0;
+    return WideCharToMultiByte(CP_UTF8, 0, file, -1, out, (int)n, NULL, NULL) > 0;
+}
+
+int clipboard_set_file(const char* path) {
+    wchar_t w[MAX_PATH], full[MAX_PATH];
+    if (!MultiByteToWideChar(CP_UTF8, 0, path, -1, w, MAX_PATH)) return 0;
+    for (wchar_t* p = w; *p; p++) if (*p == L'/') *p = L'\\';
+    DWORD n = GetFullPathNameW(w, MAX_PATH, full, NULL);
+    if (!n || n >= MAX_PATH) return 0;
+    size_t bytes = sizeof(DROPFILES) + (n + 2) * sizeof(wchar_t);  /* the list ends with two NULs */
+    HGLOBAL g = GlobalAlloc(GMEM_MOVEABLE | GMEM_ZEROINIT, bytes);
+    if (!g) return 0;
+    DROPFILES* df = (DROPFILES*)GlobalLock(g);
+    df->pFiles = sizeof(DROPFILES); df->fWide = TRUE;
+    memcpy((char*)df + sizeof(DROPFILES), full, n * sizeof(wchar_t));
+    GlobalUnlock(g);
+    if (!OpenClipboard(g_hwnd)) { GlobalFree(g); return 0; }
+    EmptyClipboard();
+    int ok = SetClipboardData(CF_HDROP, g) != NULL;
+    if (!ok) GlobalFree(g);
+    UINT fmt = RegisterClipboardFormatW(L"Preferred DropEffect");      /* a copy, not a move */
+    HGLOBAL e = fmt ? GlobalAlloc(GMEM_MOVEABLE, sizeof(DWORD)) : NULL;
+    if (e) { *(DWORD*)GlobalLock(e) = 1 /* DROPEFFECT_COPY */; GlobalUnlock(e); if (!SetClipboardData(fmt, e)) GlobalFree(e); }
+    CloseClipboard();
+    return ok;
 }
 
 void window_fix_frame(SDL_Window* win) {
@@ -788,6 +841,9 @@ void menu_init(SDL_Window* win, const char* const* shell_names, int n_shells) { 
 void menu_show(int on) { (void)on; }
 void menu_strip(int on) { (void)on; }
 void window_fix_frame(SDL_Window* win) { (void)win; }
+int clipboard_set_file(const char* path) { (void)path; return 0; }
+int file_dialog(SDL_Window* win, int save, const char* title, const char* filter, const char* default_name, char* out, size_t n) {
+    (void)win; (void)save; (void)title; (void)filter; (void)default_name; (void)out; (void)n; return 0; }
 void menu_init_second(SDL_Window* win) { (void)win; }
 void menu_show_second(int on) { (void)on; }
 void menu_check(int id, int on) { (void)id; (void)on; }

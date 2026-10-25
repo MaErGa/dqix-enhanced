@@ -36,7 +36,7 @@ news, and friends to play with.
   fullscreen if you like. In widescreen, the map can go in its own window
   so the field is clean.
 - Keyboard, mouse (as the touch screen) and gamepads, every key and button
-  changeable (Game > Controls). Hold Tab to fast forward.
+  changeable (Game > Controls). Tab turns fast forward on and off (a ▶▶▶ in the corner shows it; `fast_forward = hold` in settings.ini to hold it instead).
 - Reset without closing the game, and a volume slider.
 - The game's own icon (the one the DS menu shows), made from your ROM.
 
@@ -88,7 +88,8 @@ first time.
    (*Source code (zip)*) and unzip it. The **Nightly** release there is the
    newest work, less tested.
 2. Double-click **`Install Dragon Quest IX.bat`**. A setup window walks you
-   through it: choose your ROM (it says which version it is), where to put
+   through it: choose your ROM (the `.nds`, or a `.zip` with it inside; it
+   says which version it is), where to put
    the game (your Documents by default), and shortcuts on the desktop and in
    the Start menu. It then installs the free build tools (MSYS2) and builds
    the game: 10-20 minutes the first time. Press **Play now** at the end.
@@ -99,6 +100,12 @@ first time.
 Prefer no window? Put your ROM in the `rom` folder and double-click
 **`BUILD.bat`** instead; the game appears in the `game` folder
 (`game\dqix.exe`).
+
+**Already have MSYS2?** The installer finds it on any drive and only adds
+what's missing. If it doesn't (an unusual place), put its folder (for
+example `D:\tools\msys64`) in a file named `msys2-path.txt` next to
+`BUILD.bat`. An old MSYS2 is updated or repaired; if it can't be, the
+installer asks before installing a fresh one, and keeps the old one renamed.
 
 Your save (`dqix.sav`) and settings (`settings.ini`) live in the `game`
 folder. **Don't share the `game` or `build` folders**: they contain the game.
@@ -114,7 +121,7 @@ folder. **Don't share the `game` or `build` folders**: they contain the game.
 | touch screen | left mouse button on the bottom screen | |
 
 Every setting is in the **menu bar** at the top of the window, and
-**Game > Controls** changes any key or button. Handy keys: Tab (hold) fast
+**Game > Controls** changes any key or button. Handy keys: Tab (on/off) fast
 forward, P pause, Ctrl+R reset, - / = volume, F5 Classic / Enhanced, F2
 layout, U single screen, F9 swap the screens, K / I / O the widescreen small
 screen's corner, size and opacity, F11 fullscreen (double-click outside the

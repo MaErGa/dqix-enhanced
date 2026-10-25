@@ -5,7 +5,7 @@
  *   D-pad <- arrow keys     A <- X      B <- Z      X <- S      Y <- A
  *   L <- Q                  R <- W      START <- Enter         SELECT <- Right Shift / Backspace
  *   touch screen <- left mouse button on the bottom screen
- *   Tab (hold) = fast forward     F11 or Alt+Enter = fullscreen (mouse at the top edge shows the menu bar)
+ *   Tab = fast forward (on/off) F11 or Alt+Enter = fullscreen (mouse at the top edge shows the menu bar)
  *   F2 = layout: stacked, side by side, top screen in the corner, widescreen, widescreen dynamic (two windows)
  *   U = single screen (widescreen: hide the small one)   F9 = swap the screens (widescreen: hold to see the other)
  *   K / I / O = widescreen's small screen: corner, size, opacity    Ctrl+R = reset   - / = = volume
@@ -27,6 +27,11 @@
 #include <stdint.h>
 #include <time.h>
 #include <stdarg.h>
+#ifdef _WIN32
+#include <direct.h>                                         /* _mkdir */
+#else
+#include <sys/stat.h>                                       /* mkdir */
+#endif
 #include "nds.h"
 #include "frontend.h"
 #include "gl_render.h"
@@ -85,6 +90,7 @@ static void perf_write(FILE* f);
 static int g_classic = 1;       /* Classic: the DS's own 3D renderer, exact; Enhanced: 3D on the GPU at 1-4x */
 extern int g_comp_gl;
 static int g_paused, g_turbo;   /* Game > Pause, Game > Fast forward (latched) */
+static int g_ff_hold;           /* fast forward while Tab is held (0: Tab switches it on and off) */
 
 /* How the screens are shown (View and Screen menus). The DS Lite parts need OpenGL. */
 static struct {
@@ -182,6 +188,12 @@ static void skins_scan(void) {
 #define STBI_ONLY_PNG
 #define STBI_NO_STDIO_WARNINGS
 #include "stb_image.h"
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#define STBI_WRITE_NO_STDIO_WARNINGS
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-function"
+#include "stb_image_write.h"                                  /* public domain (Sean Barrett): the report's window.png */
+#pragma GCC diagnostic pop
 
 /* The photo for the chosen console colour (if it is one), in the GPU. */
 static const Skin* current_skin(void) {
@@ -204,10 +216,74 @@ static const char* BACKLIGHT_NAME[5] = { "", "low", "medium", "high", "max" };
 /* Canvas (in DS pixels) for the current layout, and where the screens sit on it.
  * The DS Lite: 0.24 mm per pixel; the lid and base are 133 mm wide; the
  * screens are 90 pixels (21.5 mm) apart. */
+/* ---------------------------------------------------------------- scenes with their own widescreen
+ * Some scenes are built only for the DS's width (beyond it the set ends: the
+ * new game's starry sky, the Observatory): widescreen shows them with black
+ * sides. A few use both screens as one picture (the great tree's movie):
+ * widescreen shows them stacked while they play. The scene is the map or the
+ * movie the game is loading (card.c). Built-in list below; players add their
+ * own in widescreen.txt next to the game ("bars map NAME", "stacked movie NAME"),
+ * or with Modern > "Widescreen: this place with black sides". */
+extern char g_scene_map[32], g_scene_movie[32];
+extern uint64_t g_scene_movie_frame;
+typedef struct { char what, kind; char name[30]; } SceneRule;   /* what: 'b' bars, 's' stacked; kind: 'm' map, 'v' movie */
+static const SceneRule SCENE_RULES[] = {
+    { 'b', 'm', "M01M12" },                                       /* the starry sky (a new game's start, the story's turns) */
+    { 'b', 'm', "X01M01" },                                       /* the way up to the Observatory: a painted sky that ends */
+    { 0, 0, "" }                                                  /* (end) */
+};
+static SceneRule g_user_rules[128]; static int g_n_user_rules = -1;
+static void scene_rules_load(void) {
+    g_n_user_rules = 0;
+    FILE* f = fopen("widescreen.txt", "r"); if (!f) return;
+    char line[200];
+    while (fgets(line, sizeof line, f) && g_n_user_rules < 128) {
+        char w[16], k[16], n[64];
+        if (line[0] == '#' || sscanf(line, "%15s %15s %63s", w, k, n) != 3) continue;
+        SceneRule r = { !strcmp(w, "stacked") ? 's' : !strcmp(w, "bars") ? 'b' : 0, !strcmp(k, "movie") ? 'v' : !strcmp(k, "map") ? 'm' : 0, "" };
+        if (!r.what || !r.kind) continue;
+        snprintf(r.name, sizeof r.name, "%s", n);
+        g_user_rules[g_n_user_rules++] = r;
+    }
+    fclose(f);
+}
+static int scene_movie_playing(void) { return g_scene_movie[0] && g_frame - g_scene_movie_frame < 90; }
+static int scene_rule(void) {                                     /* 0, 'b' or 's' */
+    if (g_n_user_rules < 0) scene_rules_load();
+    for (int pass = 0; pass < 2; pass++) {                        /* a playing movie first, then the map */
+        const char* name = pass == 0 ? (scene_movie_playing() ? g_scene_movie : NULL) : g_scene_map;
+        char kind = pass == 0 ? 'v' : 'm';
+        if (!name || !name[0]) continue;
+        for (int i = 0; i < g_n_user_rules; i++) if (g_user_rules[i].kind == kind && !strcmp(g_user_rules[i].name, name)) return g_user_rules[i].what;
+        for (int i = 0; SCENE_RULES[i].what; i++) if (SCENE_RULES[i].kind == kind && !strcmp(SCENE_RULES[i].name, name)) return SCENE_RULES[i].what;
+    }
+    return 0;
+}
+static int g_scene_stack;                                         /* this frame: show stacked (both screens are one picture) */
+static void notice(const char* fmt, ...);
+/* Modern > "Widescreen: black sides in this place": add or remove this map in widescreen.txt */
+static void scene_toggle_bars(void) {
+    if (g_n_user_rules < 0) scene_rules_load();
+    if (!g_scene_map[0]) { notice("No place to remember here"); return; }
+    int found = -1;
+    for (int i = 0; i < g_n_user_rules; i++) if (g_user_rules[i].kind == 'm' && !strcmp(g_user_rules[i].name, g_scene_map)) found = i;
+    if (found >= 0) { g_user_rules[found] = g_user_rules[--g_n_user_rules]; notice("Widescreen as usual here (%s)", g_scene_map); }
+    else if (g_n_user_rules < 128) {
+        SceneRule r = { 'b', 'm', "" }; snprintf(r.name, sizeof r.name, "%s", g_scene_map);
+        g_user_rules[g_n_user_rules++] = r; notice("Black sides here from now on (%s)", g_scene_map);
+    }
+    FILE* f = fopen("widescreen.txt", "w"); if (!f) return;
+    fprintf(f, "# Scenes with their own widescreen (Modern > Widescreen: black sides in this place).\n");
+    fprintf(f, "# bars map NAME: black sides in that place; stacked movie NAME: both screens stacked while it plays.\n");
+    for (int i = 0; i < g_n_user_rules; i++)
+        fprintf(f, "%s %s %s\n", g_user_rules[i].what == 's' ? "stacked" : "bars", g_user_rules[i].kind == 'v' ? "movie" : "map", g_user_rules[i].name);
+    fclose(f);
+}
+
 /* Widescreen: DS pixels to add left and right of the 3D picture. 16:9 in a
  * window; in fullscreen, as wide as the monitor (up to 2:1 more). */
 static int wide_side_target(void) {
-    if (!(g_gl && g_wide && !g_side_by_side)) return 0;
+    if (!(g_gl && g_wide && !g_side_by_side) || g_scene_stack) return 0;
     int side = 43;                                                /* (192 * 16 / 9 - 256) / 2 */
     if (g_fullscreen && g_win) {
         int w, h; SDL_GetWindowSize(g_win, &w, &h);
@@ -220,7 +296,7 @@ static int wide_side_target(void) {
 static void canvas_layout_for(GlPresent* v, int ww, int wh, int second) {
     memset(v, 0, sizeof *v);
     int two = g_gl && g_two && !g_side_by_side && !g_single;
-    int wide = g_gl && g_wide && !g_side_by_side && !two;
+    int wide = g_gl && g_wide && !g_side_by_side && !two && !g_scene_stack;
     int single = g_single && !wide;                               /* one screen (in widescreen the left trigger hides the small one instead) */
     int corner = g_gl && g_corner && !g_side_by_side && !wide && !two && !single;
     int shell = g_gl && g_opt.shell && !g_side_by_side && !corner && !wide && !two && !single;
@@ -389,6 +465,7 @@ static void settings_load(void) {
         }
         if (!strcmp(key, "update_check")) { g_update_auto = atoi(val) != 0; continue; }
         if (!strcmp(key, "confirm_quit")) { g_confirm_quit = atoi(val) != 0; continue; }
+        if (!strcmp(key, "fast_forward")) { g_ff_hold = !strcmp(val, "hold"); continue; }
         if (!strcmp(key, "update_skip")) { snprintf(g_update_skip, sizeof g_update_skip, "%s", val); continue; }
         if (!strcmp(key, "session_port")) { int v = atoi(val); if (v > 0 && v < 65536) g_session_port = v; continue; }
         if (!strcmp(key, "session_consoles")) { if (!strcmp(val, "processes")) { static char e[] = "DQIX_PROCESSES=1"; putenv(e); } continue; }
@@ -407,6 +484,7 @@ static void settings_load(void) {
         else if (!strcmp(key, "swap_screens")) g_swap = atoi(val) != 0;
         else if (!strcmp(key, "widescreen_popout")) g_wide_pop = atoi(val) != 0;
         else if (!strcmp(key, "smooth_textures")) g_smooth = atoi(val) != 0;
+        else if (!strcmp(key, "outlines")) g_gl_outline = !strcmp(val, "medium") ? 2 : !strcmp(val, "ds") ? 0 : 1;
         else if (!strcmp(key, "small_screen_opacity")) { int v = atoi(val); if (v >= 10 && v <= 100) opacity_saved = v; }
         else if (!strcmp(key, "second_window")) { int r[4]; if (sscanf(val, "%d,%d,%d,%d", &r[0], &r[1], &r[2], &r[3]) == 4 && r[2] > 0 && r[3] > 0) memcpy(g_win2_rect, r, sizeof r); }
         else if (!strcmp(key, "second_window_fullscreen")) g_win2_full = atoi(val) != 0;
@@ -455,6 +533,8 @@ static void settings_save(void) {
     fprintf(f, "resolution_3d = %d\n", g_res_auto || g_scale3d > 4 ? 4 : g_scale3d);   /* for versions before v29 */
     fprintf(f, "# enhanced: smooth textures (filtered) instead of the DS's blocky texels: 0 or 1\n");
     fprintf(f, "smooth_textures = %d\n", g_smooth);
+    fprintf(f, "# enhanced above 1x: character outlines thin, medium or ds (the DS's own rule, thicker)\n");
+    fprintf(f, "outlines = %s\n", g_gl_outline == 2 ? "medium" : g_gl_outline == 0 ? "ds" : "thin");
     fprintf(f, "# widescreen: the small screen (map, battle commands) in a window of its own: 0 or 1\n");
     fprintf(f, "widescreen_popout = %d\n", g_wide_pop);
     fprintf(f, "# window size: 1 to 8 times the DS screens (F3)\n");
@@ -514,6 +594,8 @@ static void settings_save(void) {
     fprintf(f, "update_check = %d\n", g_update_auto);
     fprintf(f, "# Esc or closing the window asks before quitting (0: quits at once)\n");
     fprintf(f, "confirm_quit = %d\n", g_confirm_quit);
+    fprintf(f, "# Tab (fast forward): toggle (press once on, once off) or hold\n");
+    fprintf(f, "fast_forward = %s\n", g_ff_hold ? "hold" : "toggle");
     fprintf(f, "update_skip = %s\n", g_update_skip[0] ? g_update_skip : "-");
     fprintf(f, "session_port = %d\n", g_session_port);
     fprintf(f, "# how your friends' DSes run on this PC: thread (one thread, the usual) or processes (if thread misbehaves)\n");
@@ -612,6 +694,9 @@ static int try_gl(void) {
     const char* e = getenv("DQIX_SCALE3D");
     if (e) { g_scale3d = atoi(e); g_res_auto = 0; }
     if (getenv("DQIX_SMOOTH")) g_smooth = atoi(getenv("DQIX_SMOOTH")) != 0;   /* tests */
+    if (getenv("DQIX_OUTLINE")) g_gl_outline = atoi(getenv("DQIX_OUTLINE"));   /* tests: 1 thin, 2 medium, 0 DS */
+    if (getenv("DQIX_SOFTALPHA")) g_gl_soft_alpha = atoi(getenv("DQIX_SOFTALPHA"));   /* tests */
+    if (getenv("DQIX_SOFTSHADE")) g_gl_soft_shade = atoi(getenv("DQIX_SOFTSHADE"));   /* tests */
     gl_set_smooth(g_smooth);
     if (!gl_render_init(g_res_auto ? (getenv("DQIX_AUTO_FROM") ? 2 : 4) : g_scale3d)) {
         fprintf(stderr, "OpenGL renderer failed to start: using the software renderer\n");
@@ -873,6 +958,15 @@ static void memfind_hook(void) {
         at = -1; const char* e = getenv("DQIX_MEMFIND");
         if (e) { at = atoll(e); const char* c = e; while ((c = strchr(c, ',')) && nv < 8) { c++; vals[nv++] = (unsigned)strtoul(c, NULL, 16); } }
     }
+    {   /* DQIX_RAMDUMP=frame[,frame...]: the main RAM to ram<frame>.bin (tests) */
+        static char rl[400]; static int ri;
+        if (!ri) { ri = 1; const char* e = getenv("DQIX_RAMDUMP"); if (e) snprintf(rl, sizeof rl, ",%s,", e); }
+        char key[32]; snprintf(key, sizeof key, ",%llu,", (unsigned long long)g_frame);
+        if (rl[0] && strstr(rl, key)) {
+            char path[64]; snprintf(path, sizeof path, "ram%llu.bin", (unsigned long long)g_frame);
+            FILE* f = fopen(path, "wb"); if (f) { fwrite(g_main_ram, 1, MAIN_RAM_SIZE, f); fclose(f); }
+        }
+    }
     if (at < 0 || g_frame != (uint64_t)at) return;
     extern void gpu3d_debug_proj(void);
     gpu3d_debug_proj();
@@ -974,6 +1068,60 @@ static void perf_write(FILE* f) {
     }
 }
 
+/* A bug report also keeps the window as it looked (window.png, at most 1920
+ * pixels wide): the DS screens alone (screenshot.bmp) don't show the layout,
+ * widescreen's sides or the scaling (GitHub #18). */
+static char g_report_shot_dir[300];
+static void report_window_shot(int w, int h) {
+    if (!g_report_shot_dir[0] || w <= 0 || h <= 0) return;
+    uint8_t* rgb = gl_read_window(w, h);
+    int k = (w + 1919) / 1920; if (k < 1) k = 1;
+    int ow = w / k, oh = h / k;
+    uint8_t* out = malloc((size_t)ow * oh * 3);
+    if (out) {
+        for (int y = 0; y < oh; y++) for (int x = 0; x < ow; x++) for (int c = 0; c < 3; c++) {
+            unsigned sum = 0;
+            for (int j = 0; j < k; j++) for (int i = 0; i < k; i++) sum += rgb[((size_t)(y * k + j) * w + (x * k + i)) * 3 + c];
+            out[((size_t)y * ow + x) * 3 + c] = (uint8_t)(sum / (unsigned)(k * k));
+        }
+        char path[400]; snprintf(path, sizeof path, "%s/window.png", g_report_shot_dir);
+        stbi_write_png(path, ow, oh, 3, out, ow * 3);
+        free(out);
+    }
+    free(rgb);
+    g_report_shot_dir[0] = 0;
+}
+
+/* ... and the display settings (display.txt): the settings that change what
+ * is on screen, nothing personal (no names, addresses or Wi-Fi ID). */
+static void settings_save(void);
+static void report_display(const char* dir) {
+    static const char* KEEP[] = { "mode", "render_scale", "smooth_textures", "outlines", "widescreen_popout", "window_scale", "layout",
+        "single_screen", "small_screen_corner", "small_screen_size", "small_screen_hidden", "small_screen_opacity", "swap_screens",
+        "second_window", "second_window_fullscreen", "walk_any_direction", "fullscreen", "dslite_filter", "lcd_colors", "pixel_grid",
+        "motion_blur", "backlight", "screen_gap", "console", "integer_scaling", "actual_size" };
+    char path[400]; snprintf(path, sizeof path, "%s/display.txt", dir);
+    FILE* out = fopen(path, "w");
+    if (!out) return;
+    if (g_win) {
+        int w, h, dw, dh; SDL_GetWindowSize(g_win, &w, &h); SDL_GL_GetDrawableSize(g_win, &dw, &dh);
+        SDL_DisplayMode m; int disp = SDL_GetWindowDisplayIndex(g_win);
+        if (disp < 0 || SDL_GetCurrentDisplayMode(disp, &m) != 0) m.w = m.h = 0;
+        fprintf(out, "window: %dx%d (drawn at %dx%d)%s, display %dx%d, renderer %s\n", w, h, dw, dh, g_fullscreen ? " fullscreen" : "",
+                m.w, m.h, g_gl ? "OpenGL" : "software");
+    }
+    settings_save();
+    FILE* in = fopen("settings.ini", "r");
+    char line[400];
+    while (in && fgets(line, sizeof line, in)) {
+        if (line[0] == '#') continue;
+        char key[64]; if (sscanf(line, " %63[a-z_0-9]", key) != 1) continue;
+        for (size_t i = 0; i < sizeof KEEP / sizeof KEEP[0]; i++) if (!strcmp(key, KEEP[i])) { fputs(line, out); break; }
+    }
+    if (in) fclose(in);
+    fclose(out);
+}
+
 /* DQIX_WINSHOT_AT=frame[,frame...]: save the whole window as shown (tests) */
 static void window_shot_hook(int w, int h, int second) {
     static char list[20000]; static int init;
@@ -1055,6 +1203,10 @@ static void auto_scale(void) {
 
 static void present_gl(void) {
     auto_scale();
+    {   int r = g_wide && !g_classic ? scene_rule() : 0;
+        g_gl_bars = r == 'b';
+        g_scene_stack = r == 's';
+    }
     g_wide_side = g_classic ? 0 : wide_side_target();            /* the next 3D frames (only the picture changes) */
     {   /* ...and what the game counts as in view (not in a session: every PC must decide alike) */
         static int off = -1; if (off < 0) off = getenv("DQIX_NO_WIDE_CULL") != NULL;
@@ -1084,6 +1236,15 @@ static void present_gl(void) {
     }
     int w, h; SDL_GL_GetDrawableSize(g_win, &w, &h);
     GlPresent v; canvas_layout(&v, w, h);
+    {   /* fast forward on: three arrows in the picture's bottom left corner */
+        static int tests = -1; if (tests < 0) tests = getenv("DQIX_FAST") != NULL;
+        if (g_fast && !tests) {
+            float pw = v.cw * v.sc, ph = v.ch * v.sc;
+            float bh = fmaxf(16.0f, ph * 0.04f), m = fmaxf(8.0f, ph * 0.02f);
+            v.badge[0] = v.ox + m; v.badge[1] = v.oy + ph - m - bh; v.badge[2] = bh * 1.8f; v.badge[3] = bh;
+            (void)pw;
+        }
+    }
     gl_present(&v);
     window_shot_hook(w, h, 0);
     SDL_GL_SwapWindow(g_win);
@@ -1181,7 +1342,9 @@ static void menu_sync(void) {
         for (int i = 0; i < 7; i++) { menu_check(ids[i], sc[i] ? !g_res_auto && g_scale3d == sc[i] : g_res_auto); menu_enable(ids[i], g_gl && !g_classic); }
     }
     menu_check(MI_POPOUT, g_wide_pop && wide); menu_enable(MI_POPOUT, g_gl);
+    menu_enable(MI_SCENE_BARS, wide);
     menu_check(MI_SMOOTH, g_smooth); menu_enable(MI_SMOOTH, g_gl && !g_classic);
+    for (int i = 0; i < 3; i++) { menu_check(MI_OUTLINE0 + i, g_gl_outline == (i == 0 ? 1 : i == 1 ? 2 : 0)); menu_enable(MI_OUTLINE0 + i, g_gl && !g_classic); }
     menu_check(MI_LCD, g_opt.lcd); menu_enable(MI_LCD, g_gl);
     int lcd = g_gl && g_opt.lcd;
     menu_check(MI_LCDCOL, g_opt.lcd_color); menu_enable(MI_LCDCOL, lcd);
@@ -1223,7 +1386,7 @@ static const char* CONTROLS_TEXT =
     "Touch screen   left mouse button on the bottom screen\n\n"
     "Screens: F2 layout   U single screen (left trigger)   F9 swap (right trigger; widescreen: hold to see the other)\n"
     "Widescreen's small screen: K corner (right stick click)   I size   O opacity (left stick click)\n"
-    "Tab (hold) fast forward   P pause   Ctrl+R reset (controller: hold Start+Select+L+R)   - / = volume\n"
+    "Tab fast forward (on/off)   P pause   Ctrl+R reset (controller: hold Start+Select+L+R)   - / = volume\n"
     "F5 Classic / Enhanced   F4 3D resolution   F6 DS Lite screen   F7 DS Lite console   F8 actual size   F3 window size\n"
     "F11 or Alt+Enter fullscreen (mouse at the top: menu bar)   F12 screenshot   F10 bug report   Esc leave fullscreen / quit (asks first)\n"
     "In fullscreen, double-click outside the touch screen to go back to the window.";
@@ -1391,10 +1554,11 @@ static int choose(const char* title, const char* text, const char* const* button
 static void report_send(const char* dir, const char* description) {
     static const char* WARN =
         "Send this report to the people working on the game?\n\n"
-        "Your browser opens a new bug report on the project's GitHub page, already filled in, and the report's folder opens "
-        "with one file in it to drag into that page. Then press Submit. You need a free GitHub account.\n\n"
+        "Your browser opens a new bug report on the project's GitHub page, already filled in, and the report's file is copied "
+        "for you: in the page you only press Ctrl+V, then Create. You need a free GitHub account (no account: paste it "
+        "on the Discord instead).\n\n"
         "Everything on GitHub is public: anyone can see the report and download its file. The file contains:\n"
-        "  - a screenshot of the game\n"
+        "  - a screenshot of the game, and of the window with your display settings\n"
         "  - every button you pressed since the game started\n"
         "  - your save file (your characters' names and progress), at the start and now, if ticked below\n"
         "  - your description\n"
@@ -1422,10 +1586,15 @@ static void report_send(const char* dir, const char* description) {
         if (strlen(first) > 70) strcpy(first + 67, "...");
         snprintf(title, sizeof title, "%s (" DQIX_VERSION ")", first);
     }
+    int copied = clipboard_set_file(zip);                       /* Ctrl+V in the page attaches it */
     static char body[6000];
     snprintf(body, sizeof body,
+             "%s"
              "**Version:** %s (%s)\n**Mode:** %s\n**Graphics:** %s\n\n**What happened:**\n%s\n\n"
-             "**Report file:** drag `%s` from the folder that just opened into this box.%s\n",
+             "**Report file:** `%s`%s%s\n",
+             copied ? "## \U0001F449 Click here and press Ctrl+V to attach your report, then press Create\n"
+                      "_(Delete this line if you like. The report is attached once you see a link like `[v32-....zip](...)` below.)_\n\n"
+                    : "## \U0001F449 Drag the report file from the folder that just opened into this box, then press Create\n\n",
              DQIX_VERSION,
 #ifdef _WIN32
              "Windows",
@@ -1434,17 +1603,38 @@ static void report_send(const char* dir, const char* description) {
 #endif
              g_classic ? "Classic" : "Enhanced", g_gl ? gl_renderer_name() : "software",
              description && description[0] ? description : "(please describe what you did and what went wrong)",
-             zname, with_saves ? "" : " (without the save file)");
+             zname, with_saves ? "" : " (without the save file)", copied ? "" : " (in the folder that opened)");
     static char url[16000];
     snprintf(url, sizeof url, "https://github.com/" UPDATE_REPO "/issues/new?labels=bug&title=");
     url_add(url, sizeof url, title);
     strncat(url, "&body=", sizeof url - strlen(url) - 1);
     url_add(url, sizeof url, body);
-    show_in_folder(zip);
+    if (!copied) show_in_folder(zip);
     if (SDL_OpenURL(url) != 0) {
         char m[600]; snprintf(m, sizeof m, "The browser didn't open. Go to https://github.com/%s/issues/new and attach %s.", UPDATE_REPO, zip);
         info_box(SDL_MESSAGEBOX_INFORMATION, "Send the bug report", m, g_win);
     }
+    /* the two steps left, until the player says it's done */
+    static const char STEPS[] =
+        "Almost done - 2 steps in the page that just opened:\n\n"
+        "  1.  Click in the big text box and press  Ctrl+V\n"
+        "        (this attaches your report: a link to the file appears)\n\n"
+        "  2.  Press  Create  (the green button)\n\n"
+        "No GitHub account? Press Ctrl+V in a message on the Discord instead.\n\n"
+        "Ctrl+V did nothing? Press Copy again, or Show the file and drag it into the box.";
+    static const char STEPS_DRAG[] =
+        "Almost done - 2 steps:\n\n"
+        "  1.  Drag the report file from the folder that opened into the big text box on the page\n\n"
+        "  2.  Press  Create  (the green button)\n\n"
+        "No GitHub account? Drop the file in a message on the Discord instead.";
+    const char* sb[3] = { "Done", copied ? "Copy again" : "Show the file", "Show the file" };
+    for (;;) {
+        int r = choose("Send the bug report", copied ? STEPS : STEPS_DRAG, sb, copied ? 3 : 2, 0, 0);
+        if (r == 1 && copied) { clipboard_set_file(zip); notice("The report is copied: press Ctrl+V in the page"); }
+        else if (r == 1 || r == 2) show_in_folder(zip);
+        else break;
+    }
+    g_next_frame = SDL_GetPerformanceCounter();
 }
 
 /* A message with buttons: Windows' own dialog (buttons sized to their words),
@@ -1481,6 +1671,68 @@ static void quit_ask(void) {
     if (r != 0) return;
     if (dont) { g_confirm_quit = 0; settings_save(); }
     exit(0);
+}
+
+/* Game > Save file: a copy of your save anywhere, or a save from another copy
+ * of the game or an emulator (raw .sav like melonDS's, DeSmuME's .dsv with its
+ * footer). The save in use is kept in save-backups/ first; the game then
+ * starts again with the new one. */
+static void save_export(void) {
+    char path[1024];
+    if (!file_dialog(g_win, 1, "Export your save", "DS save (*.sav)|*.sav|All files (*.*)|*.*", "dqix.sav", path, sizeof path)) {
+#ifndef _WIN32
+        notice("Your save is %s, next to the game: copy that file", backup_path());
+#endif
+        return;
+    }
+    backup_flush();
+    uint32_t n; const uint8_t* img = backup_image(&n);
+    FILE* f = fopen(path, "wb");
+    if (!f || fwrite(img, 1, n, f) != n) { if (f) fclose(f); info_box(SDL_MESSAGEBOX_ERROR, "Export your save", "The file couldn't be written there.", g_win); return; }
+    fclose(f);
+    notice("Save exported");
+}
+static void save_backup_copy(char* out, size_t n) {           /* the save in use -> save-backups/dqix-<date>.sav */
+    out[0] = 0;
+#ifdef _WIN32
+    _mkdir("save-backups");
+#else
+    mkdir("save-backups", 0755);
+#endif
+    time_t now = time(NULL); struct tm* t = localtime(&now);
+    snprintf(out, n, "save-backups/dqix-%04d%02d%02d-%02d%02d%02d.sav", t->tm_year + 1900, t->tm_mon + 1, t->tm_mday, t->tm_hour, t->tm_min, t->tm_sec);
+    uint32_t sz; const uint8_t* img = backup_image(&sz);
+    FILE* f = fopen(out, "wb");
+    if (!f) { out[0] = 0; return; }
+    fwrite(img, 1, sz, f); fclose(f);
+}
+static void restart_with(const char* session);
+static void save_import(void) {
+    if (session_requested()) { info_box(SDL_MESSAGEBOX_INFORMATION, "Import a save", "Leave the session first (Wireless menu).", g_win); return; }
+    char path[1024];
+    if (!file_dialog(g_win, 0, "Import a save", "DS saves (*.sav;*.dsv;*.bin)|*.sav;*.dsv;*.bin|All files (*.*)|*.*", NULL, path, sizeof path)) {
+#ifndef _WIN32
+        notice("Put the save next to the game as %s (the game not running)", backup_path());
+#endif
+        return;
+    }
+    static uint8_t buf[1 << 20];
+    FILE* f = fopen(path, "rb");
+    size_t n = f ? fread(buf, 1, sizeof buf, f) : 0;
+    if (f) fclose(f);
+    /* DQIX's save is 64 KB; emulators add a footer (DeSmuME) or keep a bigger chip's size */
+    uint32_t size = n >= 0x10000 ? 0x10000 : (uint32_t)n;
+    if (!size || backup_check_image(buf, size) == 0) {
+        info_box(SDL_MESSAGEBOX_ERROR, "Import a save", "That file isn't a Dragon Quest IX save (or it is damaged). Nothing was changed.", g_win);
+        return;
+    }
+    char text[1400], kept[300];
+    snprintf(text, sizeof text, "Use this save?\n\n%s\n\nThe game starts again with it. Your current save is kept as a copy in the save-backups folder, next to the game.", path);
+    if (!ask_yes("Import a save", text, "Import and restart")) return;
+    save_backup_copy(kept, sizeof kept);
+    if (!kept[0]) { info_box(SDL_MESSAGEBOX_ERROR, "Import a save", "Your current save couldn't be copied to save-backups, so nothing was changed.", g_win); return; }
+    backup_replace(buf, size);
+    restart_with(NULL);
 }
 
 static void update_go(const char* branch, const char* version) {
@@ -1685,7 +1937,7 @@ static void do_action(int id) {
     int relayout = 0;
     switch (id) {
     case MI_PAUSE: g_paused = !g_paused; break;
-    case MI_TURBO: g_turbo = !g_turbo; break;
+    case MI_TURBO: g_turbo = !g_turbo; notice(g_turbo ? "Fast forward on (Tab)" : "Fast forward off"); break;
     case MI_DLC:
         g_opt.dlc = !g_opt.dlc;
         info_box(SDL_MESSAGEBOX_INFORMATION, "Downloadable content", g_opt.dlc ?
@@ -1731,6 +1983,16 @@ static void do_action(int id) {
     case MI_REPORT: {
         extern char g_report_last_dir[300];
         report_write("F10 pressed");                               /* captured first: the moment you pressed it */
+        if (g_report_last_dir[0]) {
+            report_display(g_report_last_dir);
+            if (g_gl && g_win) {                                   /* the window now: drawn again (not shown), read back */
+                snprintf(g_report_shot_dir, sizeof g_report_shot_dir, "%s", g_report_last_dir);
+                int w, h; SDL_GL_GetDrawableSize(g_win, &w, &h);
+                GlPresent v; canvas_layout(&v, w, h); v.again = 1;
+                gl_present(&v);
+                report_window_shot(w, h);
+            }
+        }
         char* text = g_win ? ask_text(g_win, "Bug report " DQIX_VERSION,
             "The report is saved. Describe what went wrong (what you did, what you expected, what happened) - "
             "as much as you like. Save adds it to the report; Skip keeps the report without a description.") : NULL;
@@ -1758,6 +2020,13 @@ static void do_action(int id) {
         break;
     case MI_RES_AUTO: if (g_gl && !g_classic) g_res_auto = 1; break;          /* auto_scale() picks it */
     case MI_SMOOTH: if (g_gl) { g_smooth = !g_smooth; gl_set_smooth(g_smooth); } break;
+    case MI_SCENE_BARS: scene_toggle_bars(); break;
+    case MI_SAVE_EXPORT: save_export(); break;
+    case MI_SAVE_IMPORT: save_import(); break;
+    case MI_OUTLINE0: case MI_OUTLINE0 + 1: case MI_OUTLINE0 + 2:
+        g_gl_outline = id == MI_OUTLINE0 ? 1 : id == MI_OUTLINE0 + 1 ? 2 : 0;
+        notice("Outlines: %s", g_gl_outline == 1 ? "thin" : g_gl_outline == 2 ? "medium" : "like the DS");
+        break;
     case MI_POPOUT:
         if (!g_gl) break;
         if (g_wide && !g_side_by_side) g_wide_pop = !g_wide_pop;
@@ -1895,6 +2164,7 @@ static void do_action(int id) {
 static int wide_now(void) { return g_wide && g_gl && !g_side_by_side; }
 static void hotkey(int a) {
     switch (a) {
+    case CA_FAST: if (!g_ff_hold) do_action(MI_TURBO); break;    /* Tab: on, then off (hold: see g_fast) */
     case CA_PAUSE: do_action(MI_PAUSE); break;
     case CA_FULL: do_action(MI_FULL); break;
     case CA_LAYOUT: {                                            /* stacked -> side by side -> corner -> widescreen -> dynamic (-> two windows, with two monitors) */
@@ -2064,11 +2334,11 @@ void frontend_frame(void) {
         const Uint8* ks = SDL_GetKeyboardState(NULL);
         g_fe_keys = key_bits(ks) | pad_bits();
         static int always_fast = -1; if (always_fast < 0) always_fast = getenv("DQIX_FAST") != NULL;   /* tests */
-        g_fast = controls_key_held(CA_FAST, ks) || controls_pad_held(CA_FAST, g_pad) || always_fast || g_turbo;
+        g_fast = (g_ff_hold && (controls_key_held(CA_FAST, ks) || controls_pad_held(CA_FAST, g_pad))) || always_fast || g_turbo;
         {   /* the controller's own shortcuts (stick clicks, triggers...): when pressed */
             static uint8_t was[CA_N];
             for (int a = CA_N_DS; a < CA_N; a++) {
-                int now = a != CA_FAST && controls_pad_held(a, g_pad);
+                int now = (a != CA_FAST || !g_ff_hold) && controls_pad_held(a, g_pad);
                 if (now && !was[a] && !g_pad_resync) hotkey(a);
                 was[a] = (uint8_t)now;
             }
