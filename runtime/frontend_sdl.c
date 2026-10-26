@@ -1314,10 +1314,20 @@ static void hud_update(int a_on_top) {
     }
     if (which != 0) return;
     const uint32_t* px = g_engine_out[a_on_top ? 1 : 0];          /* the bottom screen's engine */
+    uint32_t c_sep = 0x515151, c_frame = 0xFBFBFB;                /* dynamic widescreen: also while they fade in from black */
+    if (g_wide_dyn) {                                             /* (master brightness: those colours dimmed the same way) */
+        uint16_t mb; memcpy(&mb, &g_io[(a_on_top ? 0x1000 : 0) + 0x6C], 2);
+        uint32_t f = mb & 31; if (f > 16) f = 16;
+        if ((mb >> 14) == 2 && f) {
+            uint32_t v6[2] = { 0x51 >> 2, 0xFB >> 2 }, out[2];
+            for (int k = 0; k < 2; k++) { uint32_t c = v6[k] - ((v6[k] * f + 15) >> 4); c = c << 2 | c >> 4; out[k] = c * 0x010101u; }
+            c_sep = out[0]; c_frame = out[1];
+        }
+    }
     int sep[192], nsep = 0;
     for (int y = 0; y < 192; y++) {
         int n = 0;
-        for (int x = 10; x < 246; x++) if ((px[y * 256 + x] & 0xFFFFFF) == 0x515151) n++;
+        for (int x = 10; x < 246; x++) if ((px[y * 256 + x] & 0xFFFFFF) == c_sep) n++;
         sep[y] = n > 200; nsep += sep[y];
     }
     if (nsep < 1) {                                               /* no panels: one window alone (experience, level up)? */
@@ -1339,7 +1349,7 @@ static void hud_update(int a_on_top) {
         if (y - y0 < 8) continue;                                 /* a border, not a panel */
         /* a member's panel: 30-45 rows (the one whose turn it is: up to 80), framed in white */
         int h = y - y0, mid = (y0 + y) / 2, framed = 0;
-        for (int x = 0; x < 16; x++) if ((px[mid * 256 + x] & 0xFFFFFF) == 0xFBFBFB) framed = 1;
+        for (int x = 0; x < 16; x++) if ((px[mid * 256 + x] & 0xFFFFFF) == c_frame) framed = 1;
         if (!framed) continue;                                    /* the wood around the panels (above them in the attacks, below a party of 3) */
         if (n == 8 || h < 30 || h > 80 || (h >= 50 && tall++)) return;
         g_hud_band[n][0] = y0; g_hud_band[n][1] = y; n++;
@@ -1413,13 +1423,19 @@ static void present_gl(void) {
          * Windows over the field (the menu, its lists) keep moving right instead. */
         static int over, under;
         extern int g_ui_scene, g_ui_windows3d;
-        int menu_screen = on && !g_ui_battle3d && (g_ui_area3d >= 1000 ||                     /* a picture over the whole screen */
-                          (g_ui_scene < 24 * 32 * 4 / 10 && g_ui_windows3d + gl_ui_area() >= 40));   /* windows, and hardly any scene behind */
+        extern int g_ui_bg2d;
+        int menu_screen = on && !g_ui_battle3d && (g_ui_area3d >= 1000 ||                     /* a 3D picture over the whole screen (Stella's) */
+                          (g_ui_scene < 24 * 32 * 4 / 10 && g_ui_bg2d >= 160));             /* hardly any scene, and a 2D picture of its own
+                                                                                               * around it (the quest list), not black */
         if (menu_screen) { over++; under = 0; } else { under++; over = 0; }
         if (!on) g_ui_plain = 0;
         else if (!g_ui_plain && over >= 2) g_ui_plain = 1;
         else if (g_ui_plain && under >= 6) g_ui_plain = 0;
         g_ui_hold = g_ui_plain; gl_set_ui_hold(g_ui_plain);
+        {   static int lg = -1; if (lg < 0) lg = getenv("DQIX_UILOG") != NULL;     /* tests: what the menu-screen test sees */
+            extern int g_ui_npoly;
+            if (lg && on) fprintf(stderr, "ui f%llu scene %d win3d %d area3d %d area2d %d battle %d plain %d n %d bg2d %d\n", (unsigned long long)g_frame,
+                                  g_ui_scene, g_ui_windows3d, g_ui_area3d, gl_ui_area(), g_ui_battle3d, g_ui_plain, g_ui_npoly, g_ui_bg2d); }
     }
     gl_compose((pow >> 15) & 1, pow & 1);
     wide_update((pow >> 15) & 1);

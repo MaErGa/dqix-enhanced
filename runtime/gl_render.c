@@ -1561,27 +1561,58 @@ static int hd_upload(int eng) {
  * box (wide, low: it stays in the middle) or covers most of the screen (a
  * card, a curtain). In battles only the battle messages at the bottom move. */
 static uint8_t g_move[24][32];
-static int g_ui_shift, g_ui_battle, g_ui_hold2, g_ui_area;
+static int g_ui_shift, g_ui_battle, g_ui_hold2, g_ui_area, g_ui_shift_now;   /* shift_now: this frame's (battles: clear of the panels) */
 void gl_set_ui_shift(int px, int battle) { g_ui_shift = px; g_ui_battle = battle; }
 void gl_set_ui_hold(int on) { g_ui_hold2 = on; }   /* a submenu: work out the windows, but move none */
 int gl_ui_area(void) { return g_ui_area; }
 int gl_ui_unshift(int* x, int y) {           /* a point on the 3D screen where a moved 2D window shows: where it really is */
-    int sx = *x - g_ui_shift;
-    if (!g_ui_shift || g_ui_hold2 || sx < 0 || sx > 255 || y < 0 || y > 191 || !g_move[y >> 3][sx >> 3] || (g_comp_info[(y * 256 + sx) * 4] & 3) == 1) return 0;
+    int sx = *x - g_ui_shift_now;
+    if (!g_ui_shift_now || g_ui_hold2 || sx < 0 || sx > 255 || y < 0 || y > 191 || !g_move[y >> 3][sx >> 3] || (g_comp_info[(y * 256 + sx) * 4] & 3) == 1) return 0;
     *x = sx; return 1;
 }
+extern int gl_ui_dump_frame(void);
+int g_ui_bg2d;   /* 8x8 cells outside the 3D scene with a 2D picture there (not black): a menu screen's own background */
 static int ui_classify(void) {
-    memset(g_move, 0, sizeof g_move); g_ui_area = 0;
+    memset(g_move, 0, sizeof g_move); g_ui_area = 0; g_ui_bg2d = 0; g_ui_shift_now = g_ui_shift;
     if (g_ui_shift <= 0) return 0;
     static uint8_t cell[24][32]; static int16_t comp[24][32];
+    extern uint8_t g_ui_field[24][32];
+    static char litmap[24][33];
     int any = 0;
     for (int cy = 0; cy < 24; cy++) for (int cx = 0; cx < 32; cx++) {
-        int n = 0;
-        for (int y = cy * 8; y < cy * 8 + 8; y++) for (int x = cx * 8; x < cx * 8 + 8; x++) n += (g_comp_info[(y * 256 + x) * 4] & 3) != 1;
+        int n = 0, lit = 0;
+        for (int y = cy * 8; y < cy * 8 + 8; y++) for (int x = cx * 8; x < cx * 8 + 8; x++) {
+            int i = y * 256 + x, k = g_comp_info[i * 4] & 3;
+            n += k != 1;
+            uint32_t c = k == 1 ? g_comp_c2[i] : g_engine_out[0][i];
+            if (k == 1 && (c >> 29) && ((c >> 24) & 31) >= 8) c = 0;     /* (faded out: master brightness, applied later in the shader) */
+            c &= 0xFFFFFF;                                               /* (pure white: the screen turned off) */
+            lit += c != 0xFFFFFF && (((c >> 16) & 0xFF) > 0x20 || ((c >> 8) & 0xFF) > 0x20 || (c & 0xFF) > 0x20);
+        }
         cell[cy][cx] = n >= 2; comp[cy][cx] = -1; any |= cell[cy][cx];
+        if (!g_ui_field[cy][cx] && lit >= 40) g_ui_bg2d++;
+        litmap[cy][cx] = g_ui_field[cy][cx] ? 'F' : lit >= 40 ? 'L' : (char)('0' + lit / 7);
+    }
+    if (gl_ui_dump_frame()) {                                            /* tests: the cell map */
+        {
+            fprintf(stderr, "cells f%llu bg2d %d\n", (unsigned long long)g_frame, g_ui_bg2d);
+            for (int cy = 0; cy < 24; cy++) { litmap[cy][32] = 0; fprintf(stderr, " L%s\n", litmap[cy]); }
+            for (int cy = 0; cy < 24; cy++) { char row[40]; for (int cx = 0; cx < 32; cx++) {
+                int n0 = 0, n2 = 0; for (int y = cy * 8; y < cy * 8 + 8; y++) for (int x = cx * 8; x < cx * 8 + 8; x++) { int v = g_comp_info[(y * 256 + x) * 4] & 3; n0 += v == 0; n2 += v == 2; }
+                int t = n0 + n2; row[cx] = t < 2 ? '.' : t >= 60 ? (n2 > n0 ? 'B' : '#') : (char)((n2 > n0 ? 'a' : '0') + t / 7); } row[32] = 0; fprintf(stderr, "  %s\n", row); }
+        }
     }
     if (!any) return g_ui_shift;
     static int16_t qx[768], qy[768];
+    static uint8_t mark[24][32];
+    int battle_sh = 0;                                                   /* how far the battle messages move */
+    int band = 99;                                                       /* the dialogue box's top row: rows low on the */
+    for (int ry = 23; ry >= 12; ry--) {                                  /* screen from (nearly) edge to edge */
+        int n = 0; for (int cx = 0; cx < 32; cx++) n += cell[ry][cx];
+        if (cell[ry][1] && cell[ry][30] && n >= 26) band = ry;
+        else if (band != 99) break;
+    }
+    if (g_ui_battle) band = 99;
     for (int cy = 0; cy < 24; cy++) for (int cx = 0; cx < 32; cx++) {
         if (!cell[cy][cx] || comp[cy][cx] >= 0) continue;
         int h = 0, t = 0, x0 = cx, x1 = cx, y0 = cy, y1 = cy;
@@ -1596,19 +1627,52 @@ static int ui_classify(void) {
                 comp[ny][nx] = 1; qx[t] = (int16_t)nx; qy[t] = (int16_t)ny; t++;
             }
         }
-        int w = x1 - x0 + 1, hh = y1 - y0 + 1, move;
-        int dialogue = 0;                                                /* the dialogue box: a row low on the screen from edge to edge */
-        {   static int8_t rmin[24], rmax[24];                            /* (with its name tag or Yes/No: the whole piece stays) */
-            for (int k = 0; k < 24; k++) { rmin[k] = 99; rmax[k] = -1; }
-            for (int k = 0; k < t; k++) { int ry = qy[k]; if (qx[k] < rmin[ry]) rmin[ry] = (int8_t)qx[k]; if (qx[k] > rmax[ry]) rmax[ry] = (int8_t)qx[k]; }
-            for (int ry = 12; ry < 24; ry++) if (rmin[ry] <= 0 && rmax[ry] >= 31) dialogue = 1;
+        int hh = y1 - y0 + 1;
+        if (g_ui_battle) {                                               /* battles: the messages at the bottom, */
+            if (y0 >= 12 && hh <= 10 && !g_ui_hold2) {                   /* clear of the party's panels as far as the right edge allows */
+                for (int k = 0; k < t; k++) g_move[qy[k]][qx[k]] = 1;
+                extern int g_ui_battle_left;
+                int need = g_ui_battle_left - x0 * 8, room = 255 + g_ui_shift - (x1 * 8 + 7), sh = g_ui_shift;
+                if (need > sh) sh = need;
+                if (sh > room) sh = room < g_ui_shift ? g_ui_shift : room;
+                if (sh > battle_sh) battle_sh = sh;
+            }
+            continue;
         }
-        if (g_ui_battle) move = y0 >= 12 && hh <= 10;
-        else move = !dialogue && !(x0 == 0 && x1 == 31) && w >= 5 && hh >= 2;   /* windows at least 40 pixels wide (not the field's marks), not a layer across the whole width */
-        if (move || dialogue) g_ui_area += t;
-        if (move && !g_ui_hold2) for (int k = 0; k < t; k++) g_move[qy[k]][qx[k]] = 1;
+        if (t >= 32 * 24 * 9 / 10) continue;                             /* over the whole screen: a fade, a card, the sepia of memories */
+        /* the dialogue box: rows low on the screen from (nearly) edge to edge; it stays in the
+         * middle, with the small windows sitting on it (its name tag, its Yes/No) */
+        int inband = 0; for (int k = 0; k < t; k++) inband += qy[k] >= band;
+        g_ui_area += inband;
+        /* the rest (all of it, without a dialogue box): its windows, each on its own */
+        memset(mark, 0, sizeof mark);
+        for (int k = 0; k < t; k++) if (qy[k] < band) mark[qy[k]][qx[k]] = 1;
+        static int16_t sx[768], sy[768];
+        for (int k0 = 0; k0 < t; k0++) {
+            if (mark[qy[k0]][qx[k0]] != 1) continue;
+            int sh = 0, st = 0, a0 = qx[k0], a1 = qx[k0], b0 = qy[k0], b1 = qy[k0];
+            sx[st] = qx[k0]; sy[st] = qy[k0]; st++; mark[qy[k0]][qx[k0]] = 2;
+            while (sh < st) {
+                int x = sx[sh], y = sy[sh]; sh++;
+                if (x < a0) a0 = x; if (x > a1) a1 = x; if (y < b0) b0 = y; if (y > b1) b1 = y;
+                static const int d[4][2] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
+                for (int k = 0; k < 4; k++) {
+                    int nx = x + d[k][0], ny = y + d[k][1];
+                    if (nx < 0 || nx > 31 || ny < 0 || ny > 23 || mark[ny][nx] != 1) continue;
+                    mark[ny][nx] = 2; sx[st] = (int16_t)nx; sy[st] = (int16_t)ny; st++;
+                }
+            }
+            int sw = a1 - a0 + 1, shh = b1 - b0 + 1;
+            int tag = band != 99 && b1 >= band - 2 && sw <= 12 && shh <= 7;   /* on the dialogue box: its name tag, its Yes/No */
+            extern int gpu3d_ui_near_moved(int, int, int, int);
+            int move = !tag && sw >= 5 && shh >= 2;                      /* windows at least 40 pixels wide (not the field's marks) */
+            if (!move && !tag && sw <= 4 && shh <= 3 && gpu3d_ui_near_moved(a0 * 8, b0 * 8, a1 * 8 + 7, b1 * 8 + 7)) move = 1;   /* a pointer by a moved 3D window */
+            if (move) g_ui_area += st;
+            if (move && !g_ui_hold2) for (int k = 0; k < st; k++) g_move[sy[k]][sx[k]] = 1;
+        }
     }
-    return g_ui_shift;
+    g_ui_shift_now = battle_sh ? battle_sh : g_ui_shift;
+    return g_ui_shift_now;
 }
 
 void gl_compose(int a_on_top, int lcd_on) {
@@ -1626,7 +1690,7 @@ void gl_compose(int a_on_top, int lcd_on) {
     p_glDisable(GL_DEPTH_TEST); p_glDisable(GL_BLEND);
     p_glClearColor(0, 0, 0, 1); p_glClear(GL_COLOR_BUFFER_BIT);
     g_wide_shown = -1;
-    if (!lcd_on) { p_glBindFramebuffer(GL_FRAMEBUFFER, 0); return; }
+    if (!lcd_on) { g_ui_bg2d = 0; g_ui_area = 0; p_glBindFramebuffer(GL_FRAMEBUFFER, 0); return; }   /* (screens off: no menu screen either) */
     float W = (float)(256 + 2 * g_wside);
     p_glUseProgram(prog_comp);
     p_glUniform1i(p_glGetUniformLocation(prog_comp, "u_col"), 0);
@@ -1640,6 +1704,7 @@ void gl_compose(int a_on_top, int lcd_on) {
     p_glUniform1i(p_glGetUniformLocation(prog_comp, "u_bars"), g_gl_bars);
     {   /* dynamic widescreen: which of the 3D screen's 2D windows move right */
         int sh = has3d && g_wside > 0 ? ui_classify() : 0;
+        if (!(has3d && g_wside > 0)) { g_ui_bg2d = 0; g_ui_area = 0; memset(g_move, 0, sizeof g_move); }
         p_glUniform1i(p_glGetUniformLocation(prog_comp, "u_shift"), sh);
         p_glUniform1i(p_glGetUniformLocation(prog_comp, "u_move"), 8);
         p_glActiveTexture(GL_TEXTURE8); p_glBindTexture(GL_TEXTURE_2D, tex_move);

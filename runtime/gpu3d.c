@@ -1668,7 +1668,16 @@ static int ysort_cmp(const void* a, const void* b) {
  * move, clear of the party's panels. The moved windows are kept (where they
  * were) for the mouse: gpu3d_ui_unshift. */
 int g_ui_shift3d, g_ui_battle3d, g_ui_hold, g_ui_area3d, g_ui_battle_left, g_ui_scene = 768, g_ui_windows3d;   /* scene: 8x8 cells the 3D scene covers; windows3d: cells under windows */   /* battle_left: DS x the battle messages start at (right of the panels) */     /* hold: a submenu, nothing moved; area: 8x8 cells under moving windows */
+uint8_t g_ui_field[24][32];   /* 8x8 cells the 3D scene (not its windows) is drawn in */
+int g_ui_npoly;   /* polygons drawn (tests' log) */
 static int g_ui_nrect; static int g_ui_rect[32][5];   /* moved windows: x0, y0, x1, y1 where they really are, and how far */
+int gl_ui_dump_frame(void) {             /* DQIX_UICELLS=frame[,frame...]: tests, log the windows found then */
+    static char list[4000]; static int init;
+    if (!init) { init = 1; const char* e = getenv("DQIX_UICELLS"); if (e) snprintf(list, sizeof list, ",%s,", e); }
+    if (!list[0]) return 0;
+    char key[32]; snprintf(key, sizeof key, ",%llu,", (unsigned long long)g_frame);
+    return strstr(list, key) != NULL;
+}
 static int ui_flat(const HPoly* h) {
     if (h->n < 3 || h->degenerate) return 0;
     for (u32 k = 0; k < h->n; k++) if (h->w[k] != 16384) return 0;
@@ -1682,7 +1691,8 @@ static int ui_shift_classify(HPoly** list, u32 count, int side) {
     static int idx[WPOLY_MAX], parent[WPOLY_MAX], box[WPOLY_MAX][4];
     int m = 0;
     g_ui_area3d = 0;
-    static uint8_t field[24][32]; memset(field, 0, sizeof field);
+    g_ui_npoly = (int)count;
+    uint8_t (*field)[32] = g_ui_field; memset(g_ui_field, 0, sizeof g_ui_field);
     g_ui_scene = 0;
     for (u32 i = 0; i < count; i++) {
         HPoly* h = list[i]; h->ui_moved = 0;
@@ -1706,6 +1716,7 @@ static int ui_shift_classify(HPoly** list, u32 count, int side) {
             if (((h->texparam >> 26) & 7) != 0) g_ui_area3d += 1000;     /* textured: a menu's own background (Stella's): a submenu */
             continue;
         }
+        if (x1 - x0 > 270) continue;                                     /* wider than the DS's screen: scenery made for the wide view (a battle's backdrop), not a window */
         if (m == WPOLY_MAX) break;
         idx[m] = (int)i; parent[m] = m; box[m][0] = x0; box[m][1] = y0; box[m][2] = x1; box[m][3] = y1; m++;
     }
@@ -1726,11 +1737,11 @@ static int ui_shift_classify(HPoly** list, u32 count, int side) {
     int any = 0;
     for (int a = 0; a < m; a++) {
         int r = parent[a], w = gb[r][2] - gb[r][0], hh = gb[r][3] - gb[r][1], mv;
-        int dialogue = w >= 240 && gb[r][1] >= 96;                       /* wide (edge to edge) and low: the dialogue box stays in the middle, */
-        for (int d = 0; d < m && !dialogue; d++) {                       /* and so does a window just above it (its Yes/No, its name tag) */
+        int dialogue = w >= 224 && gb[r][1] >= 96;                       /* wide (nearly edge to edge) and low: the dialogue box stays in the middle, */
+        for (int d = 0; d < m && !dialogue && w <= 100 && hh <= 56; d++) {   /* and so does a small window just above it (its Yes/No, its name tag) */
             int q = parent[d];
-            if (q != d || gb[q][2] - gb[q][0] < 240 || gb[q][1] < 96) continue;
-            if (gb[r][3] <= gb[q][1] + 2 && gb[r][3] >= gb[q][1] - 10 && gb[r][0] >= gb[q][0] - 4 && gb[r][2] <= gb[q][2] + 4) dialogue = 1;
+            if (q != d || gb[q][2] - gb[q][0] < 224 || gb[q][1] < 96) continue;
+            if (gb[r][3] <= gb[q][1] + 2 && gb[r][3] >= gb[q][1] - 12 && gb[r][0] >= gb[q][0] - 8 && gb[r][2] <= gb[q][2] + 8) dialogue = 1;
         }
         int sh = g_ui_shift3d;
         if (g_ui_battle3d) {                                             /* the battle messages (lines, or their box): clear of the panels, */
@@ -1742,12 +1753,36 @@ static int ui_shift_classify(HPoly** list, u32 count, int side) {
         else mv = !dialogue && w >= 40 && hh >= 12;                      /* windows (menus, lists, the gold); not the speech bubbles, */
                                                                         /* item icons or the draggable X Menu (they belong to the field) */
         if (r == a) g_ui_windows3d += (w + 1) * (hh + 1) / 64;
+        {                                                                /* tests: the windows found */
+            if (r == a && gl_ui_dump_frame())
+                fprintf(stderr, "win3d f%llu: %d,%d - %d,%d dialogue %d move %d\n", (unsigned long long)g_frame, gb[r][0], gb[r][1], gb[r][2], gb[r][3], dialogue, mv); }
         if (!mv) continue;
         if (g_ui_hold) continue;
         list[idx[a]]->ui_moved = sh; any = 1;
         if (r == a && g_ui_nrect < 32) { int* q = g_ui_rect[g_ui_nrect++]; q[0] = gb[r][0]; q[1] = gb[r][1]; q[2] = gb[r][2]; q[3] = gb[r][3]; q[4] = sh; }
     }
+    /* small pieces next to a moved window (its pointer, a scroll arrow) go with it */
+    for (int a = 0; a < m && any && !g_ui_hold && !g_ui_battle3d; a++) {
+        if (list[idx[a]]->ui_moved) continue;
+        int r = parent[a], w = gb[r][2] - gb[r][0], hh = gb[r][3] - gb[r][1];
+        if (w >= 40 && hh >= 12) continue;
+        for (int i = 0; i < g_ui_nrect; i++) {
+            const int* q = g_ui_rect[i];
+            if (gb[r][2] < q[0] - 24 || gb[r][0] > q[2] + 8 || gb[r][3] < q[1] || gb[r][1] > q[3]) continue;
+            list[idx[a]]->ui_moved = q[4]; break;
+        }
+    }
     return any;
+}
+/* Is a small 2D piece (DS pixels) right next to a moved 3D window (a pointer drawn as a sprite)? */
+int gpu3d_ui_near_moved(int x0, int y0, int x1, int y1) {
+    if (!g_ui_shift3d || g_ui_hold || g_ui_battle3d) return 0;
+    for (int i = 0; i < g_ui_nrect; i++) {
+        const int* q = g_ui_rect[i];
+        if (x1 < q[0] - 24 || x0 > q[2] + 8 || y1 < q[1] || y0 > q[3]) continue;
+        return 1;
+    }
+    return 0;
 }
 /* A point on the 3D screen (DS pixels) where a moved window shows: where it really is. */
 int gpu3d_ui_unshift(int* x, int y) {
@@ -1887,10 +1922,22 @@ void gpu3d_vblank(void) {
     g_render_pending = 1;
 }
 
+/* A display capture of the 3D screen (the inn's guests: each is drawn once by the 3D engine and
+ * captured into a texture) needs the picture on the CPU: with the GPU renderer the software one
+ * draws that frame too. Called when a capture of the 3D starts. */
+static int g_soft_cap;                                              /* the software picture is of the list shown */
+void gpu3d_capture_needs_3d(void) {
+    if (!g_renderer3d || g_soft_cap) return;
+    double t0 = ms_now();
+    if (!g_renderer3d_verify) render_frame();                       /* (verifying: drawn already) */
+    g_soft_cap = 1;
+    g_t3d_ms += ms_now() - t0;
+}
 /* Scanline 215: draw the frame (shown during the next frame). */
 void gpu3d_render_start(void) {
     if (!g_render_pending) return;
     g_render_pending = 0;
+    g_soft_cap = 0;
     if (g_renderer3d && g_gl_pending) { g_gl_pending = 0; gl_frame(); }
     if (g_renderer3d && !g_renderer3d_verify) return;
     { extern int draw_skipped(void); if (draw_skipped()) return; }  /* DQIX_PRESENT_FROM (fast replays) */
@@ -1904,7 +1951,7 @@ extern u32 g_3d_line32[256];                                         /* 6-bit co
 extern int g_3d_present;
 
 void gpu3d_render_line(int line) {
-    if (!g_3d_have_frame || g_renderer3d) { g_3d_present = 0; return; }
+    if (!g_3d_have_frame || (g_renderer3d && !g_soft_cap)) { g_3d_present = 0; return; }
     g_3d_present = 1;
     const u32* raw = &cbuf[FIRSTPX + (u32)line * SW];
     u32 xpos = IO16_(0x010) & 0x1FF;                                 /* BG0HOFS scrolls the 3D layer */

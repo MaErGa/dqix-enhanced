@@ -8,12 +8,17 @@ adventure; try this one in its own folder with a copy of your save.
   files (with a sampler loop), so an exported song can be edited and put
   back.
 - **Widescreen, dynamic (experimental), redone**: the field never moves any
-  more. The map stays in the top left and the game's own windows (the
-  menus, their submenus, the gold, Stella's lists, "X Menu") move right,
-  clear of it; dialogue stays in the middle. In battles the party's panels
-  sit stacked in the bottom left, see-through with solid white lines, and
+  more. The map stays in the top left and the game's own windows over the
+  field (the menu, its spell and item lists, the shop, the gold) move right,
+  clear of it; the dialogue box stays in the middle with its name tag and
+  Yes/No. Screens of their own (Stella's lists, Equipment, the quest and
+  item lists, the recipe book, making a companion) show at 4:3 on the
+  right, with the map beside them. In battles the party's panels sit
+  stacked in the bottom left, see-through with solid white lines, and
   while the attacks play they shrink to each name and HP/MP, with the
-  battle messages moved right of them.
+  battle messages moved right of them. Movies show both screens stacked.
+- **The inn's guests** (Quester's Rest) are drawn again: they were
+  invisible with the GPU renderer.
 - **Widescreen: the sepia memory scenes** are sepia across the whole
   picture (the right side was darker, with a seam; #18). Thanks to celvrc
   for the report.

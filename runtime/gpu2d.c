@@ -505,6 +505,9 @@ static void capture_start(void) {
     int bank = (cnt >> 16) & 3;
     if ((vram_bank_cnt(bank) & 0x87) != 0x80) return;               /* destination must be mapped to the LCDC */
     g_cap_active = 1;
+    if ((cnt & (1u << 24)) && ((cnt >> 29) & 3) != 1) { extern void gpu3d_capture_needs_3d(void); gpu3d_capture_needs_3d(); }   /* the 3D alone: drawn on the CPU too */
+    { static int lg = -1; if (lg < 0) lg = getenv("DQIX_CAPLOG") != NULL;
+      extern uint64_t g_frame; if (lg) fprintf(stderr, "capture f%llu cnt %08x\n", (unsigned long long)g_frame, cnt); }
 }
 
 static void capture_line(int y, const uint32_t* line6) {
