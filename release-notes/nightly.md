@@ -39,7 +39,12 @@ adventure; try this one in its own folder with a copy of your save.
     experience and level-up windows big at the top. Thanks to romusan495.
 - **Graphics > Soft shadows and glows** can be turned off (the DS's stepped
   look).
-- **Show on Discord what I'm playing** (Modern menu).
+- **Show on Discord what I'm playing** (Modern menu): Dragon Quest IX and
+  the version on your Discord profile while the game runs.
+
+Still being looked into: in widescreen, the sepia memory scenes show a
+darker strip at the right side (#18), and the Zoom menu can smear in the
+dynamic widescreen (#16).
 
 **New in nightly2**
 - **The menu bar in fullscreen works**: it was greyed out and wouldn't open.
