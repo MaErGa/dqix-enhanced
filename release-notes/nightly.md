@@ -7,6 +7,9 @@ adventure; try this one in its own folder with a copy of your save.
   song and line a recording up with its loop. Music packs also play WAV
   files (with a sampler loop), so an exported song can be edited and put
   back.
+- **Widescreen: the sepia memory scenes** are sepia across the whole
+  picture (the right side was darker, with a seam; #18). Thanks to celvrc
+  for the report.
 
 **New in nightly3**
 - **The European version** (Europe, game code YDQP) builds and plays,
