@@ -315,10 +315,34 @@ static void wide_submit(int nverts, int facing) {
             stretch = ok && l2 && r2;
         }
     }
+    /* ...or a flat panel of a veil made of several (the sepia of the memory scenes,
+     * GitHub #18: four quarters, the right ones a pixel short of the edge): flat
+     * (all corners at one depth, facing the camera), at least 64 pixels each way,
+     * touching the screen's left or right edge, and close to the camera (w up to 2.0:
+     * a veil, not a sprite standing at the edge). Its corners on an edge go out to
+     * the wide picture's edge; the others stay where they are. */
+    int edge_panel = 0;
+    if (widen && side > 0 && !stretch && nverts >= 3) {
+        int ok = 1, onedge = 0; s64 w0 = tmp_vtx[0].pos[3], z0 = tmp_vtx[0].pos[2], x0 = 1 << 30, x1 = -(1 << 30), y0 = 1 << 30, y1 = -(1 << 30);
+        for (int i = 0; i < nverts && ok; i++) {
+            s64 x = tmp_vtx[i].pos[0], y = tmp_vtx[i].pos[1], w = tmp_vtx[i].pos[3], tol = w / 64 + 1;
+            if (w <= 0 || w0 > 8192 || llabs(w - w0) > w0 / 512 + 1 || llabs(tmp_vtx[i].pos[2] - z0) > (w0 >> 9) + 1) ok = 0;
+            if (x >= w - tol || x <= -w + tol) onedge = 1;
+            s64 sx = x * 128 / (w ? w : 1), sy = y * 96 / (w ? w : 1);           /* DS pixels from the middle */
+            if (sx < x0) x0 = sx; if (sx > x1) x1 = sx; if (sy < y0) y0 = sy; if (sy > y1) y1 = sy;
+        }
+        edge_panel = ok && onedge && x1 - x0 >= 64 && y1 - y0 >= 64;
+    }
     Vtx cv[10];
     for (int i = 0; i < nverts; i++) {
         cv[i] = tmp_vtx[i];
-        if (widen && !stretch) cv[i].pos[0] = (s32)(((s64)cv[i].pos[0] * 256) / (256 + 2 * side));
+        if (edge_panel) {
+            s64 x = cv[i].pos[0], w = cv[i].pos[3], tol = w / 64 + 1;
+            if (x >= w - tol) cv[i].pos[0] = (s32)w;
+            else if (x <= -w + tol) cv[i].pos[0] = (s32)-w;
+            else cv[i].pos[0] = (s32)((x * 256) / (256 + 2 * side));
+        }
+        else if (widen && !stretch) cv[i].pos[0] = (s32)(((s64)cv[i].pos[0] * 256) / (256 + 2 * side));
     }
     int n = clip_polygon(cv, nverts, 0, 1);
     if (n == 0) return;

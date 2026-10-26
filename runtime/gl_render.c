@@ -247,7 +247,6 @@ static const char* FS_COMP =
     "uniform int u_has3d; uniform vec2 u_outsize;\n"
     "uniform int u_wide; uniform float u_wtot, u_wside;\n"   /* widescreen: DS pixels across, added each side */
     "uniform int u_bars;\n"                       /* a scene made only for the DS's width: black sides */
-    "uniform int u_veil;\n"                       /* a 2D layer blended over (nearly) the whole 3D picture */
     /* HD text (text_hd.h): over each pixel up to 4 letters (u_slot: their entries
      * in u_inst + 1: top left in DS pixels, atlas cell, colour), and the picture
      * without them (u_notext). The letters come from the atlas (8 pixels per DS
@@ -283,7 +282,7 @@ static const char* FS_COMP =
      * continue it into the sides as its mirror image, not its edge column in streaks */
     "    int mx = clamp(dsx < 0.0 ? int(-dsx) : 511 - int(dsx), 0, 255);\n"
     "    uint mi = texelFetch(u_info, ivec2(mx, p2.y), 0).r & 3u;\n"
-    "    if (mi >= 2u && (u_veil != 0 || (texelFetch(u_info, ivec2(found, p2.y), 0).r & 3u) >= 2u)) p2.x = mx;\n"
+    "    if (mi >= 2u && (texelFetch(u_info, ivec2(found, p2.y), 0).r & 3u) >= 2u) p2.x = mx;\n"
     "  }\n"
     "  vec3 col = texelFetch(u_col, p2, 0).rgb;\n"
     /* bare: under the letters there is no 2D, only the 3D (a message box
@@ -1553,11 +1552,6 @@ void gl_compose(int a_on_top, int lcd_on) {
     p_glUniform1f(p_glGetUniformLocation(prog_comp, "u_wtot"), W);
     p_glUniform1f(p_glGetUniformLocation(prog_comp, "u_wside"), (float)g_wside);
     p_glUniform1i(p_glGetUniformLocation(prog_comp, "u_bars"), g_gl_bars);
-    {   /* a veil: 2D blended over at least 90% of the 3D screen (the sepia of memories; its own edge may stop short) */
-        int n = 0;
-        if (has3d) for (int i = 0; i < 256 * 192; i += 3) n += (g_comp_info[i * 4] & 3) >= 2;
-        p_glUniform1i(p_glGetUniformLocation(prog_comp, "u_veil"), n * 10 > (256 * 192 / 3) * 9);
-    }
     p_glUniform4f(p_glGetUniformLocation(prog_comp, "u_uv"), 0, 0, 1, 1);
     p_glUniform1i(p_glGetUniformLocation(prog_comp, "u_notext"), 4);
     p_glUniform1i(p_glGetUniformLocation(prog_comp, "u_slot"), 5);
