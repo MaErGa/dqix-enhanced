@@ -273,7 +273,9 @@ static int scene_rule(void) {                                     /* 0, 'b' or '
     return 0;
 }
 static int g_scene_stack;                                         /* this frame: show stacked (both screens are one picture) */
-static int g_ui_plain;                                            /* dynamic widescreen: a submenu is open: the DS's picture as it is, 4:3 at the right */
+static int g_ui_plain;                                            /* dynamic widescreen: a menu screen of its own: the DS's picture as it is, 4:3 at the right */
+static int g_hud_right;                                            /* the battle panels' right edge on the canvas (0: none) */
+static uint64_t g_last_battle;                                    /* the frame the battle panels were last seen */
 static void notice(const char* fmt, ...);
 /* Modern > "Widescreen: black sides in this place": add or remove this map in widescreen.txt */
 static void scene_toggle_bars(void) {
@@ -349,6 +351,7 @@ static void canvas_layout_for(GlPresent* v, int ww, int wh, int second) {
             small[0] = c == 0 || c == 3 ? 2 : v->cw - small[2] - 2;
             small[1] = c < 2 ? 2 : 192 - small[3] - 2;
         } else if (which == 0 && !dyn) { small[2] = 128; small[3] = 96; small[0] = small[1] = 2; }   /* battles: top left, over the sky */
+        else if (which == 0 && g_last_battle && g_frame - g_last_battle < 60 * 10) small[2] = small[3] = 0;   /* dynamic, battles: the panels only, no small screen */
         else { small[0] = 0; small[1] = 2; small[2] = 256.0f / 3; small[3] = 64; }   /* top left; the windows start right of it */
         if (g_small_blank && t > 0.99f) small[2] = small[3] = 0;   /* black (battle intros, fades): leave the field whole */
         v->front = small == v->bot;                               /* the small one in front */
@@ -397,6 +400,7 @@ static void canvas_layout_for(GlPresent* v, int ww, int wh, int second) {
                         }
                         y += q[3] + gap;
                     }
+                if (!second) { g_hud_right = 0; for (int i = 0; i < v->npiece; i++) if (v->piece[i][1] > 96 && v->piece[i][0] + v->piece[i][2] > g_hud_right) g_hud_right = (int)(v->piece[i][0] + v->piece[i][2]); }
             }
         }
     } else if (two || single) {
@@ -1316,9 +1320,8 @@ static void hud_update(int a_on_top) {
         for (int x = 10; x < 246; x++) if ((px[y * 256 + x] & 0xFFFFFF) == 0x515151) n++;
         sep[y] = n > 200; nsep += sep[y];
     }
-    static uint64_t last_battle;                                  /* the frame the party's panels were last seen */
     if (nsep < 1) {                                               /* no panels: one window alone (experience, level up)? */
-        if (!last_battle || g_frame - last_battle > 60 * 30) return;   /* only just after a battle (not the field's own windows) */
+        if (!g_last_battle || g_frame - g_last_battle > 60 * 30) return;   /* only just after a battle (not the field's own windows) */
         int x0 = 256, y0 = 192, x1 = -1, y1 = -1, n = 0;              /* its inside: dark grey 0x303030, in both styles */
         for (int y = 0; y < 192; y++)
             for (int x = 0; x < 256; x++)
@@ -1341,7 +1344,7 @@ static void hud_update(int a_on_top) {
         if (n == 8 || h < 30 || h > 80 || (h >= 50 && tall++)) return;
         g_hud_band[n][0] = y0; g_hud_band[n][1] = y; n++;
     }
-    if (n >= 2) { g_hud_n = n; last_battle = g_frame; }
+    if (n >= 2) { g_hud_n = n; g_last_battle = g_frame; }
 }
 
 /* 3D resolution Auto: render at 1.5 times the size the 3D is shown at (at
@@ -1401,15 +1404,18 @@ static void present_gl(void) {
     {   /* dynamic widescreen: the game's windows move right (the field doesn't); in battles only the messages (gpu3d.c) */
         int side = 0; gl_wide_shown(&side);
         int on = g_gl && g_wide && g_wide_dyn && !g_wide_pop && !g_side_by_side && !(g_two && !g_single);
-        extern int g_ui_shift3d, g_ui_battle3d, g_ui_hold, g_ui_area3d;
+        extern int g_ui_shift3d, g_ui_battle3d, g_ui_hold, g_ui_area3d, g_ui_battle_left;
         g_ui_shift3d = on ? side : 0; g_ui_battle3d = g_hud_n > 0;                                            /* (gpu3d.c) */
+        g_ui_battle_left = g_hud_right > 0 ? g_hud_right - side + 4 : 0;   /* the battle messages start right of the panels */
         gl_set_ui_shift(on ? side : 0, g_hud_n > 0);                                                          /* (2D ones) */
         /* a menu screen of its own (Stella's, Equipment: its own background over the whole picture):
          * the DS's picture as it is, 4:3 at the right, nothing moved; back once it's the field again.
          * Windows over the field (the menu, its lists) keep moving right instead. */
         static int over, under;
-        int area = on && !g_ui_battle3d ? g_ui_area3d + gl_ui_area() : 0;
-        if (area > 200) { over++; under = 0; } else { under++; over = 0; }
+        extern int g_ui_scene, g_ui_windows3d;
+        int menu_screen = on && !g_ui_battle3d && (g_ui_area3d >= 1000 ||                     /* a picture over the whole screen */
+                          (g_ui_scene < 24 * 32 * 4 / 10 && g_ui_windows3d + gl_ui_area() >= 40));   /* windows, and hardly any scene behind */
+        if (menu_screen) { over++; under = 0; } else { under++; over = 0; }
         if (!on) g_ui_plain = 0;
         else if (!g_ui_plain && over >= 2) g_ui_plain = 1;
         else if (g_ui_plain && under >= 6) g_ui_plain = 0;

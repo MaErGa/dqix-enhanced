@@ -1597,9 +1597,15 @@ static int ui_classify(void) {
             }
         }
         int w = x1 - x0 + 1, hh = y1 - y0 + 1, move;
+        int dialogue = 0;                                                /* the dialogue box: a row low on the screen from edge to edge */
+        {   static int8_t rmin[24], rmax[24];                            /* (with its name tag or Yes/No: the whole piece stays) */
+            for (int k = 0; k < 24; k++) { rmin[k] = 99; rmax[k] = -1; }
+            for (int k = 0; k < t; k++) { int ry = qy[k]; if (qx[k] < rmin[ry]) rmin[ry] = (int8_t)qx[k]; if (qx[k] > rmax[ry]) rmax[ry] = (int8_t)qx[k]; }
+            for (int ry = 12; ry < 24; ry++) if (rmin[ry] <= 0 && rmax[ry] >= 31) dialogue = 1;
+        }
         if (g_ui_battle) move = y0 >= 12 && hh <= 10;
-        else move = !(w >= 24 && y0 >= 12) && t < 32 * 24 * 6 / 10 && w >= 3 && hh >= 2;
-        if (t >= 32 * 24 * 6 / 10) g_ui_area += 1000;                  /* a screen of its own (its 2D over most of the picture) */
+        else move = !dialogue && !(x0 == 0 && x1 == 31) && w >= 5 && hh >= 2;   /* windows at least 40 pixels wide (not the field's marks), not a layer across the whole width */
+        if (move || dialogue) g_ui_area += t;
         if (move && !g_ui_hold2) for (int k = 0; k < t; k++) g_move[qy[k]][qx[k]] = 1;
     }
     return g_ui_shift;
