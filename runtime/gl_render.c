@@ -364,6 +364,15 @@ static const char* FS_FF =
     "  o_color = vec4(vec3(a), max(a, rim * 0.7) * 0.9);\n"
     "}\n";
 
+/* A piece of a screen over the canvas: see-through (u_see: how solid) but for
+ * its white frame lines and letters, which stay solid */
+static const char* FS_PIECE =
+    "#version 330 core\n"
+    "in vec2 v_uv; out vec4 o_color; uniform sampler2D u_src; uniform float u_see;\n"
+    "void main() { vec3 c = texture(u_src, v_uv).rgb;\n"
+    "  float a = 1.0; if (u_see > 0.0) a = mix(u_see, 1.0, smoothstep(0.80, 0.92, min(c.r, min(c.g, c.b))));\n"
+    "  o_color = vec4(c, a); }\n";
+
 static const char* FS_COPY =
     "#version 330 core\n"
     "in vec2 v_uv; out vec4 o_color; uniform sampler2D u_src;\n"
@@ -627,7 +636,7 @@ static GLuint program(const char* vs, const char* fs, int poly) {
 
 /* ---------------------------------------------------------------- state */
 static int g_scale = 2;
-static GLuint prog_poly, prog_post, prog_comp, prog_copy, prog_screen, prog_ghost, prog_ff;
+static GLuint prog_poly, prog_post, prog_comp, prog_copy, prog_piece, prog_screen, prog_ghost, prog_ff;
 static GLuint ghost_tex[2], ghost_fbo[2]; static int ghost_cur = -1, ghost_w, ghost_h;
 static GLuint skin_tex; static int skin_w, skin_h;          /* console photo (View > Console colour) */
 static GLuint vao_poly, vbo_poly, vao_quad, vbo_quad;
@@ -1065,6 +1074,7 @@ int gl_render_init(int scale) {
     prog_post = program(VS_QUAD, FS_POST, 0);
     prog_comp = program(VS_QUAD, FS_COMP, 0);
     prog_copy = program(VS_QUAD, FS_COPY, 0);
+    prog_piece = program(VS_QUAD, FS_PIECE, 0);
     prog_screen = program(VS_QUAD, FS_SCREEN, 0);
     prog_ghost = program(VS_QUAD, FS_GHOST, 0);
     prog_ff = program(VS_QUAD, FS_FF, 0);
@@ -1644,7 +1654,10 @@ void gl_hold(void) {
  * drawn over the picture just shown, each where the layout puts it. */
 static void draw_pieces(const GlPresent* v, GLuint src) {
     float W = (float)(256 + 2 * g_wside);
+    GLuint prog_copy = prog_piece;                                /* (see-through pieces) */
     p_glUseProgram(prog_copy);
+    p_glEnable(GL_BLEND); p_glBlendEquationSeparate(GL_FUNC_ADD, GL_FUNC_ADD); p_glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ZERO);
+    GLint loc_see = p_glGetUniformLocation(prog_copy, "u_see");
     p_glActiveTexture(GL_TEXTURE0); p_glBindTexture(GL_TEXTURE_2D, src); p_glBindSampler(0, 0);
     p_glGenerateMipmap(GL_TEXTURE_2D);                           /* drawn smaller than rendered: averaged, not shimmering */
     p_glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
@@ -1662,8 +1675,10 @@ static void draw_pieces(const GlPresent* v, GLuint src) {
         /* the screen in the composed picture: the top one in the upper half, the DS's 256 columns after the sides */
         float vtop = q[4] < 0.5f ? 1.0f : 0.5f;
         p_glUniform4f(loc_uv, ((float)g_wside + q[5]) / W, vtop - (q[6] + q[8]) / 384.0f, q[7] / W, q[8] / 384.0f);
+        p_glUniform1f(loc_see, q[9]);
         p_glDrawArrays(GL_TRIANGLES, 0, 6);
     }
+    p_glDisable(GL_BLEND);
     p_glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 }
 

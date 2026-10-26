@@ -103,7 +103,7 @@ void menu_init(SDL_Window* win, const char* const* shell_names, int n_shells) {
     item(view, MI_SIDE, L"&Side by side\tF2");
     item(view, MI_CORNER, L"Top screen in the &corner\tF2");
     item(view, MI_WIDE, L"&Widescreen (the action wide, the other screen in a corner)\tF2");
-    item(view, MI_WIDE_DYN, L"Widescreen, d&ynamic (experimental: makes room for menus)\tF2");
+    item(view, MI_WIDE_DYN, L"Widescreen, d&ynamic (experimental: the map stays in the corner, the game's windows move right)\tF2");
     item(view, MI_TWO, L"Two wi&ndows (one screen in each, for two monitors)\tF2");
     sep(view);
     item(view, MI_SINGLE, L"Single scr&een (widescreen: hide the small screen)\tU");

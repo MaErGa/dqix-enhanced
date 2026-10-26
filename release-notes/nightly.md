@@ -7,6 +7,13 @@ adventure; try this one in its own folder with a copy of your save.
   song and line a recording up with its loop. Music packs also play WAV
   files (with a sampler loop), so an exported song can be edited and put
   back.
+- **Widescreen, dynamic (experimental), redone**: the field never moves any
+  more. The map stays in the top left and the game's own windows (the
+  menus, their submenus, the gold, Stella's lists, "X Menu") move right,
+  clear of it; dialogue stays in the middle. In battles the party's panels
+  sit stacked in the bottom left, see-through with solid white lines, and
+  while the attacks play they shrink to each name and HP/MP, with the
+  battle messages moved right of them.
 - **Widescreen: the sepia memory scenes** are sepia across the whole
   picture (the right side was darker, with a seam; #18). Thanks to celvrc
   for the report.

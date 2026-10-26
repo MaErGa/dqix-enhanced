@@ -54,6 +54,7 @@ typedef struct {
     s32 ytop, ybot, xtop, xbot;
     u32 sortkey;
     int hidden;            /* drawn under a hidden tag (g_gx_hide): left out of the picture only */
+    int ui_moved;          /* dynamic widescreen: a window moved right (ui_shift_classify) */
 } HPoly;
 
 /* Tags (tags.txt): the recompiled code calls gx_tag_begin/end around calls
@@ -1657,6 +1658,71 @@ static int ysort_cmp(const void* a, const void* b) {
     if (x->sortkey != y->sortkey) return x->sortkey < y->sortkey ? -1 : 1;
     return x < y ? -1 : x > y ? 1 : 0;                              /* stable: keep submission order */
 }
+/* Dynamic widescreen: the game's windows and messages (drawn by the 3D engine
+ * as flat squares at depth 4.0: letters, frames, icons) move right by the
+ * sides' width, g_ui_shift3d DS pixels, so the small screen in the top left
+ * never covers them; the field never moves. The squares are grouped into
+ * windows (overlapping or within 6 pixels); a window moves unless it is the
+ * dialogue box (wide, low: it stays in the middle) or covers the screen (a
+ * fade). In battles (g_ui_battle3d) only the battle messages at the bottom
+ * move, clear of the party's panels. The moved windows are kept (where they
+ * were) for the mouse: gpu3d_ui_unshift. */
+int g_ui_shift3d, g_ui_battle3d;
+static int g_ui_nrect; static int g_ui_rect[32][4];
+static int ui_flat(const HPoly* h) {
+    if (h->n < 3 || h->degenerate) return 0;
+    for (u32 k = 0; k < h->n; k++) if (h->w[k] != 16384) return 0;
+    return 1;
+}
+static int ui_shift_classify(HPoly** list, u32 count, int side) {
+    static int idx[WPOLY_MAX], parent[WPOLY_MAX], box[WPOLY_MAX][4];
+    int m = 0;
+    for (u32 i = 0; i < count; i++) {
+        HPoly* h = list[i]; h->ui_moved = 0;
+        if (!ui_flat(h)) continue;
+        int x0 = 1 << 30, x1 = -(1 << 30), y0 = 1 << 30, y1 = -(1 << 30);
+        for (u32 k = 0; k < h->n; k++) {
+            int x = h->v[k]->hpos[0] / 16 - side, y = h->v[k]->hpos[1] / 16;
+            if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+        }
+        if (x1 - x0 >= 250 && y1 - y0 >= 150) continue;              /* a fade or a card over the screen */
+        if (m == WPOLY_MAX) break;
+        idx[m] = (int)i; parent[m] = m; box[m][0] = x0; box[m][1] = y0; box[m][2] = x1; box[m][3] = y1; m++;
+    }
+    for (int a = 0; a < m; a++) for (int b = a + 1; b < m; b++) {
+        if (box[a][0] > box[b][2] + 6 || box[b][0] > box[a][2] + 6 || box[a][1] > box[b][3] + 6 || box[b][1] > box[a][3] + 6) continue;
+        int ra = a, rb = b; while (parent[ra] != ra) ra = parent[ra]; while (parent[rb] != rb) rb = parent[rb];
+        if (ra != rb) parent[rb] = ra;
+    }
+    static int gb[WPOLY_MAX][4];
+    for (int a = 0; a < m; a++) { gb[a][0] = gb[a][1] = 1 << 30; gb[a][2] = gb[a][3] = -(1 << 30); }
+    for (int a = 0; a < m; a++) {
+        int r = a; while (parent[r] != r) r = parent[r]; parent[a] = r;
+        if (box[a][0] < gb[r][0]) gb[r][0] = box[a][0]; if (box[a][1] < gb[r][1]) gb[r][1] = box[a][1];
+        if (box[a][2] > gb[r][2]) gb[r][2] = box[a][2]; if (box[a][3] > gb[r][3]) gb[r][3] = box[a][3];
+    }
+    g_ui_nrect = 0;
+    int any = 0;
+    for (int a = 0; a < m; a++) {
+        int r = parent[a], w = gb[r][2] - gb[r][0], hh = gb[r][3] - gb[r][1], mv;
+        if (g_ui_battle3d) mv = gb[r][1] >= 120 && hh <= 72;            /* the battle messages */
+        else mv = !(w >= 192 && gb[r][1] >= 96);                        /* everything but the dialogue box */
+        if (!mv) continue;
+        list[idx[a]]->ui_moved = 1; any = 1;
+        if (r == a && g_ui_nrect < 32) { int* q = g_ui_rect[g_ui_nrect++]; q[0] = gb[r][0]; q[1] = gb[r][1]; q[2] = gb[r][2]; q[3] = gb[r][3]; }
+    }
+    return any;
+}
+/* A point on the 3D screen (DS pixels) where a moved window shows: where it really is. */
+int gpu3d_ui_unshift(int* x, int y) {
+    if (!g_ui_shift3d) return 0;
+    for (int i = 0; i < g_ui_nrect; i++) {
+        const int* q = g_ui_rect[i];
+        if (*x - g_ui_shift3d >= q[0] && *x - g_ui_shift3d <= q[2] && y >= q[1] && y <= q[3]) { *x -= g_ui_shift3d; return 1; }
+    }
+    return 0;
+}
+
 
 /* GPU renderer: the render list as screen-space polygons with float attributes. */
 static Poly g_gl_polys[POLY_MAX];
@@ -1669,6 +1735,7 @@ static void gl_frame(void) {
     int n = 0, nop = 0;
     HPoly** list = render_list; u32 count = render_n;
     if (w_render_side > 0) { list = wrender_list; count = wrender_n; }
+    int shift_ui = w_render_side > 0 && g_ui_shift3d > 0 ? ui_shift_classify(list, count, w_render_side) : 0;
     for (u32 i = 0; i < count; i++) {
         HPoly* h = list[i];
         if (h->degenerate || h->hidden) continue;
@@ -1679,6 +1746,7 @@ static void gl_frame(void) {
             const Vtx* v = h->v[k];
             SVtx* o = &q->v[k];
             o->x = v->hpos[0] / 16.0f; o->y = v->hpos[1] / 16.0f;
+            if (shift_ui && h->ui_moved) o->x += (float)g_ui_shift3d;
             o->zn = h->wbuf ? (float)h->z[k] / 16777215.0f : (float)h->z[k] / 16777215.0f;
             o->iw = v->pos[3] ? 4096.0f / (float)v->pos[3] : 1e6f;
             o->r = v->fcol[0] / 16.0f; o->g = v->fcol[1] / 16.0f; o->b = v->fcol[2] / 16.0f;

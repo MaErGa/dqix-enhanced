@@ -74,7 +74,7 @@ static int g_mus_pack = 1, g_mus_names = 0, g_mus_vol = 70;      /* Mods: music 
 static int g_hd_text = 0;                                            /* Enhanced: the game's letters redrawn at full resolution (text_hd.h) */
 static int g_res_auto = 1;                                        /* 3D resolution: as sharp as the screen shows it (else g_scale3d) */
 static int g_small_opacity = 50;                                  /* widescreen: how solid the small screen over the field is (O), % */
-static int g_wide_dyn;                                            /* widescreen: 0 basic (the corner stays), 1 dynamic (experimental: slides for menus) */
+static int g_wide_dyn;                                            /* widescreen: 0 basic (the corner stays), 1 dynamic (experimental: the game's windows move right) */
 static int g_small_corner;                                        /* basic widescreen: 0 top left, 1 top right, 2 bottom right, 3 bottom left */
 static int g_small_size = 1;                                      /* ...0 small, 1 medium, 2 large */
 static int g_small_hide;                                          /* widescreen: no small screen (left trigger / U) */
@@ -321,20 +321,21 @@ static void canvas_layout_for(GlPresent* v, int ww, int wh, int second) {
          * window, wider than the DS's; the other screen sits small in a corner
          * over it, like a minimap (see-through: O).
          * Basic: in the corner the player picks (K) at the size they pick (I).
-         * Dynamic (experimental): top left; when the game shows 2D there
-         * (menus, the title) the field slides over to make room: the corner
-         * layout, in the same window (g_wide_mix, from wide_update()); in
-         * battles the commands sit at half size.
+         * Dynamic (experimental): the map top left; the field never moves:
+         * the game's windows move right instead (gpu3d.c, ui_shift_classify;
+         * a screen without 3D sits at the right); in battles the party's
+         * panels sit stacked in the bottom left (the battle HUD, always on),
+         * cut to their names and HP/MP while the attacks play.
          * Left trigger / U hides the small screen; holding the swap button
          * shows it big in the middle (g_peek). */
         float S = (float)wide_side_target();
         int pop = g_wide_pop;                                     /* the small screen in the second window */
         int dyn = g_wide_dyn && !pop && !g_small_hide && !g_peek;
-        float t = which == 0 || !dyn ? 1.0f : g_wide_mix * g_wide_mix * (3 - 2 * g_wide_mix);   /* eased */
+        float t = 1.0f;                                           /* (the field no longer slides: the game's windows move instead, gl_set_ui_shift) */
         v->cw = 256 + 2 * S; v->ch = 192;
         float* big = which == 0 ? v->top : v->bot, *small = which == 0 ? v->bot : v->top;
         float* bigx = which == 0 ? v->topx : v->botx;
-        float wx0 = S, wtx0 = (float)side, ww = 256;              /* wide: the field (or, without 3D, the DS's picture) */
+        float wx0 = dyn ? 2 * S : S, wtx0 = (float)side, ww = 256;   /* wide: the field (or, without 3D, the DS's picture: dynamic, at the right) */
         if (which >= 0) { wx0 = S - (float)side; wtx0 = 0; ww = 256 + 2 * (float)side; }
         float cx0 = v->cw - 256, ctx0 = (float)side, cww = 256;   /* corner: the DS's picture at the right */
         big[0] = cx0 + (wx0 - cx0) * t; big[2] = cww + (ww - cww) * t;
@@ -346,8 +347,8 @@ static void canvas_layout_for(GlPresent* v, int ww, int wh, int second) {
             small[2] = SW[z]; small[3] = SH[z];
             small[0] = c == 0 || c == 3 ? 2 : v->cw - small[2] - 2;
             small[1] = c < 2 ? 2 : 192 - small[3] - 2;
-        } else if (which == 0) { small[2] = 128; small[3] = 96; small[0] = small[1] = 2; }   /* battles: top left, over the sky */
-        else { small[0] = small[1] = 2 * t; small[2] = 256.0f / 3; small[3] = 64; }
+        } else if (which == 0 && !dyn) { small[2] = 128; small[3] = 96; small[0] = small[1] = 2; }   /* battles: top left, over the sky */
+        else { small[0] = 0; small[1] = 2; small[2] = 256.0f / 3; small[3] = 64; }   /* top left; the windows start right of it */
         if (g_small_blank && t > 0.99f) small[2] = small[3] = 0;   /* black (battle intros, fades): leave the field whole */
         v->front = small == v->bot;                               /* the small one in front */
         v->alpha = 1.0f + (g_small_alpha - 1.0f) * t;            /* see-through (O) while it is over the field */
@@ -373,17 +374,26 @@ static void canvas_layout_for(GlPresent* v, int ww, int wh, int second) {
                     q[4] = 1; q[5] = (float)g_hud_win[0]; q[6] = (float)g_hud_win[1]; q[7] = w; q[8] = h;
                     q[2] = w * kw; q[3] = h * kw; q[0] = (v->cw - q[2]) / 2; q[1] = 6;
                 }
-                const float k = 0.5f, gap = 2;
+                const float k = 0.5f, gap = 2, see = 0.7f;            /* half size; the fill 70% solid, white lines and letters solid */
                 float total = 0;
-                for (int i = 0; i < g_hud_n; i++) total += (float)(g_hud_band[i][1] - g_hud_band[i][0]) * k + gap;
+                int tall = 0;
+                for (int i = 0; i < g_hud_n; i++) { total += (float)(g_hud_band[i][1] - g_hud_band[i][0]) * k + gap; if (g_hud_band[i][1] - g_hud_band[i][0] >= 50) tall = 1; }
                 float y = 192 - total;
                 for (int pass = 0; pass < 2; pass++)              /* the tall one first */
-                    for (int i = 0; i < g_hud_n && v->npiece < GL_MAX_PIECES; i++) {
+                    for (int i = 0; i < g_hud_n && v->npiece + 2 <= GL_MAX_PIECES; i++) {
                         float h = (float)(g_hud_band[i][1] - g_hud_band[i][0]);
                         if ((h >= 50) == pass) continue;
                         float* q = v->piece[v->npiece++];
-                        q[4] = 1; q[5] = 6; q[6] = (float)g_hud_band[i][0]; q[7] = 244; q[8] = h;
-                        q[0] = 4; q[1] = y; q[2] = 244 * k; q[3] = h * k;
+                        if (tall) {                                   /* choosing commands: the whole panels */
+                            q[4] = 1; q[5] = 6; q[6] = (float)g_hud_band[i][0]; q[7] = 244; q[8] = h;
+                            q[0] = 4; q[1] = y; q[2] = 244 * k; q[3] = h * k; q[9] = see;
+                        } else {                                      /* the attacks: each panel's name and HP/MP only (its third box left out), */
+                            q[4] = 1; q[5] = 6; q[6] = (float)g_hud_band[i][0]; q[7] = 113; q[8] = h;   /* with the panel's own right edge after them */
+                            q[0] = 4; q[1] = y; q[2] = 113 * k; q[3] = h * k; q[9] = see;
+                            float* e = v->piece[v->npiece++];
+                            e[4] = 1; e[5] = 241; e[6] = q[6]; e[7] = 9; e[8] = h;
+                            e[0] = q[0] + q[2]; e[1] = y; e[2] = 9 * k; e[3] = q[3]; e[9] = see;
+                        }
                         y += q[3] + gap;
                     }
             }
@@ -621,7 +631,7 @@ static void settings_save(void) {
     fprintf(f, "# window size: 1 to 8 times the DS screens (F3)\n");
     fprintf(f, "window_scale = %d\n", g_scale);
     fprintf(f, "# stacked, side_by_side, corner (the top screen small beside the field), wide (widescreen),\n");
-    fprintf(f, "# wide_dynamic (widescreen that makes room for menus; experimental) or two_windows (one screen in each); F2\n");
+    fprintf(f, "# wide_dynamic (widescreen, the game's windows moved right of the map; experimental) or two_windows (one screen in each); F2\n");
     fprintf(f, "layout = %s\n", g_side_by_side ? "side_by_side" : g_wide ? (g_wide_dyn ? "wide_dynamic" : "wide") : g_corner ? "corner" : g_two ? "two_windows" : "stacked");
     fprintf(f, "# one screen only (U / left trigger): 0 or 1\n");
     fprintf(f, "single_screen = %d\n", g_single);
@@ -1014,6 +1024,10 @@ static int to_touch_in(SDL_Window* win, int wx, int wy, int* tx, int* ty, int cl
     if (g_gl && v.bot[2] <= 0) return 0;                         /* not shown */
     float bw = v.bot[2] > 0 ? v.bot[2] : 256, bh = v.bot[3] > 0 ? v.bot[3] : 192, bx = v.botx[1] > 0 ? v.botx[1] : 256;
     int x = (int)floorf((lx - v.bot[0]) * bx / bw + (g_gl ? v.botx[0] - (float)side : 0)), y = (int)floorf((ly - v.bot[1]) * 192.0f / bh);
+    if (g_gl && gl_wide_shown(&side) == 1 && y >= 0 && y < 192) {   /* dynamic widescreen: a window moved right is touched where it really is */
+        extern int gpu3d_ui_unshift(int*, int);
+        gpu3d_ui_unshift(&x, y);
+    }
     if (clamp) { x = x < 0 ? 0 : x > 255 ? 255 : x; y = y < 0 ? 0 : y > 191 ? 191 : y; }
     if (x < 0 || x > 255 || y < 0 || y > 191) return 0;
     *tx = x; *ty = y;
@@ -1285,7 +1299,7 @@ static void wide_update(int a_on_top) {
  * small screen. In the field, keep the map for the map window. */
 static void hud_update(int a_on_top) {
     g_hud_n = 0; g_hud_win[2] = 0;
-    if (!g_gl || !g_hud || !g_wide || g_side_by_side || (g_two && !g_single)) return;
+    if (!g_gl || !(g_hud || g_wide_dyn) || !g_wide || g_side_by_side || (g_two && !g_single)) return;   /* (dynamic widescreen: always) */
     int side = 0, which = gl_wide_shown(&side);
     if (which == 1 && g_wide_pop) {                               /* the field: the map the window keeps during battles */
         uint16_t mb; memcpy(&mb, &g_io[(a_on_top ? 0 : 0x1000) + 0x6C], 2);   /* the top screen's engine (the map) */
@@ -1320,6 +1334,7 @@ static void hud_update(int a_on_top) {
         /* a member's panel: 30-45 rows (the one whose turn it is: up to 80), framed in white */
         int h = y - y0, mid = (y0 + y) / 2, framed = 0;
         for (int x = 0; x < 16; x++) if ((px[mid * 256 + x] & 0xFFFFFF) == 0xFBFBFB) framed = 1;
+        if (!framed && y0 == 0) continue;                         /* the attacks: the wood above the panels */
         if (n == 8 || h < 30 || h > 80 || !framed || (h >= 50 && tall++)) return;
         g_hud_band[n][0] = y0; g_hud_band[n][1] = y; n++;
     }
@@ -1380,6 +1395,11 @@ static void present_gl(void) {
     auto_scale();
     present_gl_state();
     uint16_t pow; memcpy(&pow, &g_io[0x304], 2);
+    {   /* dynamic widescreen: the game's windows move right (the field doesn't); in battles only the messages (gpu3d.c) */
+        int side = 0; gl_wide_shown(&side);
+        int on = g_gl && g_wide && g_wide_dyn && !g_wide_pop && !g_side_by_side && !(g_two && !g_single);
+        extern int g_ui_shift3d, g_ui_battle3d; g_ui_shift3d = on ? side : 0; g_ui_battle3d = g_hud_n > 0;   /* (gpu3d.c) */
+    }
     gl_compose((pow >> 15) & 1, pow & 1);
     wide_update((pow >> 15) & 1);
     hud_update((pow >> 15) & 1);
