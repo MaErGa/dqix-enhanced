@@ -174,6 +174,7 @@ static void unmute_where_no_file(int all) {
 typedef struct {
     int on, player, song, paused, loop, ended;
     stb_vorbis* v; drflac* f;
+    FILE* wf; uint32_t wdata, wframes; int wbits, wfloat;   /* WAV: where its samples start, how many, their format */
     int ch; double rate;
     uint64_t pos;                             /* frames read from the file */
     uint64_t loop_start, loop_end;            /* loop_end 0: the file's end */
@@ -193,6 +194,7 @@ static int g_announce;
 static void stream_close(Stream* s) {
     if (s->v) stb_vorbis_close(s->v);
     if (s->f) drflac_close(s->f);
+    if (s->wf) fclose(s->wf);
     memset(s, 0, sizeof *s);
 }
 
@@ -222,12 +224,63 @@ static void flac_meta(void* u, drflac_metadata* m) {
     for (int i = 0; i < 2; i++) if (rest[i][0]) tags_from(s, rest[i]);
 }
 
+/* WAV (PCM 8/16/24/32-bit or float): the music export's files, with their loop
+ * in the "smpl" chunk (as samplers and editors write it: the end is the last sample in it) */
+static int wav_open(Stream* s, const char* path) {
+    FILE* f = fopen(path, "rb");
+    if (!f) return 0;
+    uint8_t h[12]; if (fread(h, 1, 12, f) != 12 || memcmp(h + 8, "WAVE", 4)) { fclose(f); return 0; }
+    int fmt = 0;
+    for (;;) {
+        uint8_t c[8]; if (fread(c, 1, 8, f) != 8) break;
+        uint32_t n = rd32(c + 4); long at = ftell(f);
+        if (!memcmp(c, "fmt ", 4) && n >= 16) {
+            uint8_t b[40] = { 0 }; if (fread(b, 1, n < 40 ? n : 40, f) < 16) break;
+            int tag = b[0] | b[1] << 8; s->ch = b[2] | b[3] << 8; s->rate = rd32(b + 4); s->wbits = b[14] | b[15] << 8;
+            if (tag == 0xFFFE && n >= 26) tag = b[24] | b[25] << 8;          /* extensible: the sub-format */
+            s->wfloat = tag == 3; fmt = (tag == 1 || tag == 3);
+        } else if (!memcmp(c, "data", 4)) { s->wdata = (uint32_t)at; s->wframes = n; }
+        else if (!memcmp(c, "smpl", 4) && n >= 60) {
+            uint8_t b[60]; if (fread(b, 1, 60, f) == 60 && rd32(b + 28) >= 1) { s->loop = 1; s->loop_start = rd32(b + 44); s->loop_end = (uint64_t)rd32(b + 48) + 1; }
+        }
+        if (fseek(f, at + (long)n + (long)(n & 1), SEEK_SET)) break;
+    }
+    int bps = s->wbits / 8;
+    if (!fmt || !s->wdata || s->ch < 1 || s->ch > 8 || !(bps == 1 || bps == 2 || bps == 3 || bps == 4) || (s->wfloat && bps != 4)) { fclose(f); return 0; }
+    s->wframes /= (uint32_t)(bps * s->ch);
+    s->wf = f; fseek(f, (long)s->wdata, SEEK_SET);
+    return 1;
+}
+static int wav_read(Stream* s, float* out, int frames) {
+    int bps = s->wbits / 8, n = 0;
+    if (s->pos >= s->wframes) return 0;
+    if ((uint64_t)frames > s->wframes - s->pos) frames = (int)(s->wframes - s->pos);
+    uint8_t tmp[4096 * 4];
+    while (n < frames) {
+        int k = frames - n, per = bps * s->ch; if (k * per > (int)sizeof tmp) k = (int)sizeof tmp / per;
+        int got = (int)fread(tmp, (size_t)per, (size_t)k, s->wf);
+        if (got <= 0) break;
+        for (int i = 0; i < got * s->ch; i++) {
+            const uint8_t* p = tmp + i * bps; float v;
+            if (bps == 1) v = ((int)p[0] - 128) / 128.0f;
+            else if (bps == 2) v = (int16_t)(p[0] | p[1] << 8) / 32768.0f;
+            else if (bps == 3) v = (float)((int32_t)((uint32_t)p[0] << 8 | (uint32_t)p[1] << 16 | (uint32_t)p[2] << 24) >> 8) / 8388608.0f;
+            else if (s->wfloat) { memcpy(&v, p, 4); }
+            else v = (float)(int32_t)rd32(p) / 2147483648.0f;
+            out[n * s->ch + i] = v;
+        }
+        n += got;
+    }
+    return n;
+}
+
 static int stream_open(Stream* s, const char* path, int song) {
     memset(s, 0, sizeof *s);
     s->song = song;
     char magic[4] = { 0 };                                       /* by what the file is, not its name */
     { FILE* f = fopen(path, "rb"); if (!f) return 0; if (fread(magic, 1, 4, f) != 4) magic[0] = 0; fclose(f); }
-    if (!memcmp(magic, "fLaC", 4) || (!memcmp(magic, "ID3", 3) && strstr(path, ".flac"))) {
+    if (!memcmp(magic, "RIFF", 4)) { if (!wav_open(s, path)) return 0; }
+    else if (!memcmp(magic, "fLaC", 4) || (!memcmp(magic, "ID3", 3) && strstr(path, ".flac"))) {
         s->f = drflac_open_file_with_metadata(path, flac_meta, s, NULL);
         if (!s->f) return 0;
         s->ch = s->f->channels; s->rate = s->f->sampleRate;
@@ -261,6 +314,7 @@ static int seek_to(Stream* s, uint64_t frame) {
     s->bn = s->bi = 0; s->pos = frame;
     if (s->v) return stb_vorbis_seek(s->v, (unsigned)frame);
     if (s->f) return drflac_seek_to_pcm_frame(s->f, frame);
+    if (s->wf) { if (frame > s->wframes) return 0; return fseek(s->wf, (long)(s->wdata + frame * (uint64_t)(s->wbits / 8 * s->ch)), SEEK_SET) == 0; }
     return 0;
 }
 
@@ -281,6 +335,7 @@ static int next_frame(Stream* s, float* l, float* r) {
         int got = 0;
         if (s->v) got = stb_vorbis_get_samples_float_interleaved(s->v, s->ch, s->buf, want * s->ch);
         else if (s->f) got = (int)drflac_read_pcm_frames_f32(s->f, (drflac_uint64)want, s->buf);
+        else if (s->wf) got = wav_read(s, s->buf, want);
         if (got <= 0) {
             if (!s->loop) return 0;
             if (!seek_to(s, s->loop_start) && s->loop_start) seek_to(s, 0);
@@ -405,7 +460,7 @@ static int name_match(const char* file, const char* song) {
     for (size_t i = 0; i < n; i++) { char a = file[i], b = song[i]; if (a >= 'a' && a <= 'z') a -= 32; if (b >= 'a' && b <= 'z') b -= 32; if (!a || a != b) return 0; }
     char c = file[n];
     if ((c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')) return 0;   /* BG_01 is not BG_012 */
-    return (l > 4 && prefix(file + l - 4, ".OGG")) || (l > 5 && prefix(file + l - 5, ".FLAC"));
+    return (l > 4 && (prefix(file + l - 4, ".OGG") || prefix(file + l - 4, ".WAV"))) || (l > 5 && prefix(file + l - 5, ".FLAC"));
 }
 
 int music_reload(void) {
@@ -454,7 +509,7 @@ int music_write_list(const char* path) {
     fprintf(f, "# The game's songs. Put a recording in this folder named after one to play it instead:\n"
                "# BG_012.ogg or BG_012.flac (a title after the name is fine: BG_012 - Town.flac). Loop points: the tags LOOPSTART and LOOPLENGTH (or LOOPEND), in samples.\n"
                "# Without them, songs (BG_) loop the whole file and jingles (ME_) play once.\n"
-               "# Mods > Music > Show each song's name tells you which one is playing.\n\n");
+               "# Mods > Show each song's name tells you which one is playing; Mods > Export the game's songs writes them all as WAV files to export.\n\n");
     for (int i = 0; i < g_nsongs; i++)
         fprintf(f, "%-10s %s%s\n", g_songs[i].name, !strncmp(g_songs[i].name, "ME", 2) ? "jingle" : "song  ", g_songs[i].file[0] ? "   (in the pack)" : "");
     fclose(f);

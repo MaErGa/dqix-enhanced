@@ -24,7 +24,7 @@ a pack's pictures come first.
 
 ## Music packs
 
-OGG (Vorbis) or FLAC recordings in the `music` folder play instead of the
+OGG (Vorbis), FLAC or WAV recordings in the `music` folder play instead of the
 game's songs. Each is named after the song it replaces: `BG_012.ogg`,
 `ME_003.flac`. A title after the name is fine (`BG_012 - Town.flac`), and
 so is `BG_012.ogg.flac` (what renaming gives when Windows hides
@@ -36,6 +36,14 @@ extensions): the file's contents say whether it is OGG or FLAC.
   window's title, so you can tell which one is playing.
 - **Mods > Reload the music** after adding files: each takes over the next
   time its song starts.
+- **Mods > Export the game's songs** writes every song as a WAV file to
+  `music\export` (about 650 MB, a minute or two), made from the ROM's own
+  sequences and instruments: close to the game's sound, not exact. Each
+  file holds the intro and one pass of the loop, and `loops.txt` lists the
+  loop points (as `LOOPSTART` / `LOOPLENGTH` in samples) to line a
+  recording up with. A WAV with its loop (the "smpl" chunk, which sound
+  editors and samplers keep) also works in the `music` folder, so an
+  exported song can be edited and put back.
 
 Looping: songs loop between the `LOOPSTART` and `LOOPSTART + LOOPLENGTH`
 tags (or `LOOPEND`), in samples, the usual tags of game music rips.

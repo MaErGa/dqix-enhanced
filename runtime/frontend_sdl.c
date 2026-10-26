@@ -1711,6 +1711,40 @@ static void url_add(char* out, size_t n, const char* s) {
     out[k] = 0;
 }
 
+/* Mods > Export the game's songs: on a thread of its own (it reads only the ROM), the progress in the title */
+static volatile int g_exp_done, g_exp_total, g_exp_running, g_exp_finished;
+static void exp_progress(int d, int t) { g_exp_done = d; g_exp_total = t; }
+static int exp_thread(void* u) {
+    (void)u;
+    int n = music_export("music/export", exp_progress);
+    g_exp_done = n; g_exp_finished = 1; g_exp_running = 0;
+    return 0;
+}
+static void open_folder(const char* path);
+static void music_export_start(void) {
+    if (g_exp_running) { notice("Already exporting the songs (%d of %d)", g_exp_done, g_exp_total); return; }
+#ifdef _WIN32
+    _mkdir("music"); _mkdir("music/export");
+#else
+    mkdir("music", 0777); mkdir("music/export", 0777);
+#endif
+    g_exp_running = 1; g_exp_finished = 0; g_exp_done = 0; g_exp_total = 0;
+    SDL_Thread* t = SDL_CreateThread(exp_thread, "music export", NULL);
+    if (t) { SDL_DetachThread(t); notice("Exporting the game's songs to music\\export..."); }
+    else g_exp_running = 0;
+}
+static void music_export_poll(void) {
+    static uint64_t last;
+    if (g_exp_running && g_exp_total && SDL_GetPerformanceCounter() - last > g_perf_freq / 2) {
+        last = SDL_GetPerformanceCounter(); notice("Exporting the game's songs: %d of %d", g_exp_done, g_exp_total);
+    }
+    if (g_exp_finished) {
+        g_exp_finished = 0;
+        notice(g_exp_done ? "Exported %d songs to music\\export (loops.txt has their loop points)" : "Couldn't export the songs (%d)", g_exp_done);
+        if (g_exp_done) open_folder("music/export");
+    }
+}
+
 static void open_folder(const char* path) {
 #ifdef _WIN32
     char full[MAX_PATH]; if (!GetFullPathNameA(path, sizeof full, full, NULL)) return;
@@ -2246,6 +2280,7 @@ static void do_action(int id) {
         open_folder("music");
         break;
     }
+    case MI_MUSEXPORT: music_export_start(); break;
     case MI_MODS_HELP:
         info_box(SDL_MESSAGEBOX_INFORMATION, "Mods",
             "Texture packs: PNG pictures in the textures folder (next to the game) are drawn instead of the game's own textures, "
@@ -2259,6 +2294,8 @@ static void do_action(int id) {
             "song it replaces (BG_012.ogg); Open the music folder lists them all in songs.txt, and Show each song's name tells you "
             "which one is playing. Songs loop between the LOOPSTART and LOOPLENGTH tags (in samples) if the file has them, "
             "else the whole file; jingles (ME_) play once. The game's fades and pauses carry over. "
+            "Export the game's songs writes each as a WAV file (with its loop) to music\\export, to hear which is which; "
+            "a WAV with a loop works in the music folder too. "
             "music_pack_volume in settings.ini sets how loud they are. While playing together (Wireless) the game's own music plays.", g_win);
         break;
     case MI_HD_TEXT:
@@ -2601,6 +2638,7 @@ void frontend_frame(void) {
         static int was = -1; int want = g_mus_pack && !session_running();
         if (want != was) { if (was >= 0 || !want) music_enable(want); was = want; }
         char nm[64]; if (music_now(nm, sizeof nm) && g_mus_names && g_win) notice("Music: %s", nm);   /* Mods > Show each song's name */
+        music_export_poll();
     }
     if (g_win) {
         const Uint8* ks = SDL_GetKeyboardState(NULL);

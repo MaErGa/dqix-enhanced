@@ -1,6 +1,13 @@
 **The newest work, less tested.** Use the stable release for your main
 adventure; try this one in its own folder with a copy of your save.
 
+**New in nightly4**
+- **Export the game's songs** (Mods menu): every song as a WAV file in
+  `music\export`, with its loop points, so you can hear which name is which
+  song and line a recording up with its loop. Music packs also play WAV
+  files (with a sampler loop), so an exported song can be edited and put
+  back.
+
 **New in nightly3**
 - **The European version** (Europe, game code YDQP) builds and plays,
   in English, French, German, Italian or Spanish: **Game > Language**.

@@ -178,6 +178,7 @@ void menu_init(SDL_Window* win, const char* const* shell_names, int n_shells) {
     item(mods, MI_MUSRELOAD, L"R&eload the music");
     item(mods, MI_MUSFOLDER, L"O&pen the music folder (and its list of the songs)");
     item(mods, MI_MUSNAMES, L"&Show each song's name as it starts");
+    item(mods, MI_MUSEXPORT, L"E&xport the game's songs (WAV files with their loops, to music\\export: about 650 MB)");
     sep(mods);
     item(mods, MI_MODS_HELP, L"&What is this?");
     HMENU help = sub(g_bar, L"&Help");
