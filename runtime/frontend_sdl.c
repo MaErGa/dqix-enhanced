@@ -1026,7 +1026,7 @@ static int to_touch_in(SDL_Window* win, int wx, int wy, int* tx, int* ty, int cl
     int x = (int)floorf((lx - v.bot[0]) * bx / bw + (g_gl ? v.botx[0] - (float)side : 0)), y = (int)floorf((ly - v.bot[1]) * 192.0f / bh);
     if (g_gl && gl_wide_shown(&side) == 1 && y >= 0 && y < 192) {   /* dynamic widescreen: a window moved right is touched where it really is */
         extern int gpu3d_ui_unshift(int*, int);
-        gpu3d_ui_unshift(&x, y);
+        if (!gpu3d_ui_unshift(&x, y)) gl_ui_unshift(&x, y);
     }
     if (clamp) { x = x < 0 ? 0 : x > 255 ? 255 : x; y = y < 0 ? 0 : y > 191 ? 191 : y; }
     if (x < 0 || x > 255 || y < 0 || y > 191) return 0;
@@ -1315,7 +1315,9 @@ static void hud_update(int a_on_top) {
         for (int x = 10; x < 246; x++) if ((px[y * 256 + x] & 0xFFFFFF) == 0x515151) n++;
         sep[y] = n > 200; nsep += sep[y];
     }
+    static uint64_t last_battle;                                  /* the frame the party's panels were last seen */
     if (nsep < 1) {                                               /* no panels: one window alone (experience, level up)? */
+        if (!last_battle || g_frame - last_battle > 60 * 30) return;   /* only just after a battle (not the field's own windows) */
         int x0 = 256, y0 = 192, x1 = -1, y1 = -1, n = 0;              /* its inside: dark grey 0x303030, in both styles */
         for (int y = 0; y < 192; y++)
             for (int x = 0; x < 256; x++)
@@ -1334,11 +1336,11 @@ static void hud_update(int a_on_top) {
         /* a member's panel: 30-45 rows (the one whose turn it is: up to 80), framed in white */
         int h = y - y0, mid = (y0 + y) / 2, framed = 0;
         for (int x = 0; x < 16; x++) if ((px[mid * 256 + x] & 0xFFFFFF) == 0xFBFBFB) framed = 1;
-        if (!framed && y0 == 0) continue;                         /* the attacks: the wood above the panels */
-        if (n == 8 || h < 30 || h > 80 || !framed || (h >= 50 && tall++)) return;
+        if (!framed) continue;                                    /* the wood around the panels (above them in the attacks, below a party of 3) */
+        if (n == 8 || h < 30 || h > 80 || (h >= 50 && tall++)) return;
         g_hud_band[n][0] = y0; g_hud_band[n][1] = y; n++;
     }
-    if (n >= 2) g_hud_n = n;
+    if (n >= 2) { g_hud_n = n; last_battle = g_frame; }
 }
 
 /* 3D resolution Auto: render at 1.5 times the size the 3D is shown at (at
@@ -1399,6 +1401,7 @@ static void present_gl(void) {
         int side = 0; gl_wide_shown(&side);
         int on = g_gl && g_wide && g_wide_dyn && !g_wide_pop && !g_side_by_side && !(g_two && !g_single);
         extern int g_ui_shift3d, g_ui_battle3d; g_ui_shift3d = on ? side : 0; g_ui_battle3d = g_hud_n > 0;   /* (gpu3d.c) */
+        gl_set_ui_shift(on ? side : 0, g_hud_n > 0);                                                          /* (2D ones) */
     }
     gl_compose((pow >> 15) & 1, pow & 1);
     wide_update((pow >> 15) & 1);

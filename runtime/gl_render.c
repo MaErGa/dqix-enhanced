@@ -247,6 +247,10 @@ static const char* FS_COMP =
     "uniform int u_has3d; uniform vec2 u_outsize;\n"
     "uniform int u_wide; uniform float u_wtot, u_wside;\n"   /* widescreen: DS pixels across, added each side */
     "uniform int u_bars;\n"                       /* a scene made only for the DS's width: black sides */
+    /* dynamic widescreen: the game's 2D windows moved right by u_shift DS pixels
+     * (u_move: per 8x8 cell, 1 = its 2D moves); the 3D-drawn ones move in gpu3d.c */
+    "uniform int u_shift; uniform usampler2D u_move;\n"
+    "bool moves(int x, int y) { return u_shift > 0 && x >= 0 && x < 256 && texelFetch(u_move, ivec2(x >> 3, y >> 3), 0).r != 0u && (texelFetch(u_info, ivec2(x, y), 0).r & 3u) != 1u; }\n"
     /* HD text (text_hd.h): over each pixel up to 4 letters (u_slot: their entries
      * in u_inst + 1: top left in DS pixels, atlas cell, colour), and the picture
      * without them (u_notext). The letters come from the atlas (8 pixels per DS
@@ -260,6 +264,12 @@ static const char* FS_COMP =
     "  vec2 gdx = dFdx(dsp) * 8.0, gdy = dFdy(dsp) * 8.0;\n"
     "  ivec2 p2 = ivec2(min(vec2(dsx, uv.y * 192.0), vec2(255.0, 191.0)));\n"
     "  bool side = u_wide != 0 && (dsx < 0.0 || dsx >= 256.0);\n"
+    "  bool gone = false;\n"                      /* this pixel's 2D moved away: the 3D shows here */
+    "  if (u_wide != 0 && u_shift > 0) {\n"
+    "    int ox = int(floor(dsx)), y = p2.y;\n"
+    "    if (moves(ox - u_shift, y)) { p2 = ivec2(ox - u_shift, y); side = false; dsp.x -= float(u_shift); }\n"
+    "    else if (moves(ox, y)) gone = true;\n"
+    "  }\n"
     "  if (side && u_bars != 0) {\n"
     "    int mb0 = int(texelFetch(u_c2, ivec2(dsx < 0.0 ? 0 : 255, p2.y), 0).a * 255.0 + 0.5);\n"
     "    vec3 o0 = vec3(0.0); if ((mb0 >> 5) == 1) o0 = vec3(float(mb0 & 31) / 16.0);\n"
@@ -271,18 +281,26 @@ static const char* FS_COMP =
      * pixel's effects (fades); elsewhere (2D menus, text boxes at the edge) black. */
     "    int found = -1;\n"
     "    for (int k = 0; k < 8; k++) { int x = dsx < 0.0 ? k : 255 - k;\n"
-    "      if ((texelFetch(u_info, ivec2(x, p2.y), 0).r & 3u) != 0u) { found = x; break; } }\n"
+    "      if ((texelFetch(u_info, ivec2(x, p2.y), 0).r & 3u) != 0u || moves(x, p2.y)) { found = x; break; } }\n"
     "    if (found < 0) {\n"
     "      int mb0 = int(texelFetch(u_c2, ivec2(dsx < 0.0 ? 0 : 255, p2.y), 0).a * 255.0 + 0.5);\n"
     "      vec3 o0 = vec3(0.0); if ((mb0 >> 5) == 1) o0 = vec3(float(mb0 & 31) / 16.0);\n"
     "      o_color = vec4(o0, 1.0); return;\n"
     "    }\n"
     "    p2.x = found;\n"
+    "    if (moves(found, p2.y)) gone = true;\n"
     /* a 2D layer blended over the whole picture (the sepia of memories, GitHub #18):
      * continue it into the sides as its mirror image, not its edge column in streaks */
     "    int mx = clamp(dsx < 0.0 ? int(-dsx) : 511 - int(dsx), 0, 255);\n"
     "    uint mi = texelFetch(u_info, ivec2(mx, p2.y), 0).r & 3u;\n"
     "    if (mi >= 2u && (texelFetch(u_info, ivec2(found, p2.y), 0).r & 3u) >= 2u) p2.x = mx;\n"
+    "  }\n"
+    "  if (gone) {\n"                                /* the 3D alone (with the screen's fade) */
+    "    ivec2 sz0 = textureSize(u_3d, 0);\n"
+    "    vec4 s0 = texelFetch(u_3d, min(ivec2(v_uv * vec2(sz0)), sz0 - 1), 0);\n"
+    "    int mbg = int(texelFetch(u_c2, p2, 0).a * 255.0 + 0.5); vec3 og = s0.a > 0.0 ? s0.rgb : vec3(0.0);\n"
+    "    float fg = float(mbg & 31) / 16.0; if ((mbg >> 5) == 1) og = og + (1.0 - og) * fg; else if ((mbg >> 5) == 2) og = og - og * fg;\n"
+    "    o_color = vec4(og, 1.0); return;\n"
     "  }\n"
     "  vec3 col = texelFetch(u_col, p2, 0).rgb;\n"
     /* bare: under the letters there is no 2D, only the 3D (a message box
@@ -636,6 +654,7 @@ static GLuint program(const char* vs, const char* fs, int poly) {
 
 /* ---------------------------------------------------------------- state */
 static int g_scale = 2;
+static GLuint tex_move;
 static GLuint prog_poly, prog_post, prog_comp, prog_copy, prog_piece, prog_screen, prog_ghost, prog_ff;
 static GLuint ghost_tex[2], ghost_fbo[2]; static int ghost_cur = -1, ghost_w, ghost_h;
 static GLuint skin_tex; static int skin_w, skin_h;          /* console photo (View > Console colour) */
@@ -1118,6 +1137,7 @@ int gl_render_init(int scale) {
     tex_col[1] = new_tex(GL_RGBA8, 256, 192, GL_RGBA, GL_UNSIGNED_BYTE, GL_NEAREST);
     tex_c2 = new_tex(GL_RGBA8, 256, 192, GL_RGBA, GL_UNSIGNED_BYTE, GL_NEAREST);
     tex_info = new_tex(GL_RGBA8UI, 256, 192, GL_RGBA_INTEGER, GL_UNSIGNED_BYTE, GL_NEAREST);
+    tex_move = new_tex(GL_R8UI, 32, 24, GL_RED_INTEGER, GL_UNSIGNED_BYTE, GL_NEAREST);
     for (int i = 0; i < 2; i++) {
         tex_tx_notext[i] = new_tex(GL_RGBA8, 256, 192, GL_RGBA, GL_UNSIGNED_BYTE, GL_NEAREST);
         tex_tx_slot[i] = new_tex(GL_RGBA16UI, 256, 192, GL_RGBA_INTEGER, GL_UNSIGNED_SHORT, GL_NEAREST);
@@ -1535,6 +1555,53 @@ static int hd_upload(int eng) {
 }
 
 /* Build both screens into final_tex (top screen in the upper half). */
+/* Dynamic widescreen, the windows the game draws on its 2D layers (some menus;
+ * the 3D-drawn ones move in gpu3d.c): cut into pieces (8x8 cells with 2D shown,
+ * joined to their neighbours); a piece moves right unless it is the dialogue
+ * box (wide, low: it stays in the middle) or covers most of the screen (a
+ * card, a curtain). In battles only the battle messages at the bottom move. */
+static uint8_t g_move[24][32];
+static int g_ui_shift, g_ui_battle;
+void gl_set_ui_shift(int px, int battle) { g_ui_shift = px; g_ui_battle = battle; }
+int gl_ui_unshift(int* x, int y) {           /* a point on the 3D screen where a moved 2D window shows: where it really is */
+    int sx = *x - g_ui_shift;
+    if (!g_ui_shift || sx < 0 || sx > 255 || y < 0 || y > 191 || !g_move[y >> 3][sx >> 3] || (g_comp_info[(y * 256 + sx) * 4] & 3) == 1) return 0;
+    *x = sx; return 1;
+}
+static int ui_classify(void) {
+    memset(g_move, 0, sizeof g_move);
+    if (g_ui_shift <= 0) return 0;
+    static uint8_t cell[24][32]; static int16_t comp[24][32];
+    int any = 0;
+    for (int cy = 0; cy < 24; cy++) for (int cx = 0; cx < 32; cx++) {
+        int n = 0;
+        for (int y = cy * 8; y < cy * 8 + 8; y++) for (int x = cx * 8; x < cx * 8 + 8; x++) n += (g_comp_info[(y * 256 + x) * 4] & 3) != 1;
+        cell[cy][cx] = n >= 2; comp[cy][cx] = -1; any |= cell[cy][cx];
+    }
+    if (!any) return g_ui_shift;
+    static int16_t qx[768], qy[768];
+    for (int cy = 0; cy < 24; cy++) for (int cx = 0; cx < 32; cx++) {
+        if (!cell[cy][cx] || comp[cy][cx] >= 0) continue;
+        int h = 0, t = 0, x0 = cx, x1 = cx, y0 = cy, y1 = cy;
+        qx[t] = (int16_t)cx; qy[t] = (int16_t)cy; t++; comp[cy][cx] = 1;
+        while (h < t) {
+            int x = qx[h], y = qy[h]; h++;
+            if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+            static const int d[4][2] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
+            for (int k = 0; k < 4; k++) {
+                int nx = x + d[k][0], ny = y + d[k][1];
+                if (nx < 0 || nx > 31 || ny < 0 || ny > 23 || !cell[ny][nx] || comp[ny][nx] >= 0) continue;
+                comp[ny][nx] = 1; qx[t] = (int16_t)nx; qy[t] = (int16_t)ny; t++;
+            }
+        }
+        int w = x1 - x0 + 1, hh = y1 - y0 + 1, move;
+        if (g_ui_battle) move = y0 >= 12 && hh <= 10;
+        else move = !(w >= 24 && y0 >= 12) && t < 32 * 24 * 6 / 10 && w >= 3 && hh >= 2;
+        if (move) for (int k = 0; k < t; k++) g_move[qy[k]][qx[k]] = 1;
+    }
+    return g_ui_shift;
+}
+
 void gl_compose(int a_on_top, int lcd_on) {
     int hd[2] = { hd_upload(0), hd_upload(1) };
     upload_rgb(tex_col[0], g_engine_out[0]);
@@ -1562,6 +1629,14 @@ void gl_compose(int a_on_top, int lcd_on) {
     p_glUniform1f(p_glGetUniformLocation(prog_comp, "u_wtot"), W);
     p_glUniform1f(p_glGetUniformLocation(prog_comp, "u_wside"), (float)g_wside);
     p_glUniform1i(p_glGetUniformLocation(prog_comp, "u_bars"), g_gl_bars);
+    {   /* dynamic widescreen: which of the 3D screen's 2D windows move right */
+        int sh = has3d && g_wside > 0 ? ui_classify() : 0;
+        p_glUniform1i(p_glGetUniformLocation(prog_comp, "u_shift"), sh);
+        p_glUniform1i(p_glGetUniformLocation(prog_comp, "u_move"), 8);
+        p_glActiveTexture(GL_TEXTURE8); p_glBindTexture(GL_TEXTURE_2D, tex_move);
+        p_glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 32, 24, GL_RED_INTEGER, GL_UNSIGNED_BYTE, g_move);
+        p_glActiveTexture(GL_TEXTURE0);
+    }
     p_glUniform4f(p_glGetUniformLocation(prog_comp, "u_uv"), 0, 0, 1, 1);
     p_glUniform1i(p_glGetUniformLocation(prog_comp, "u_notext"), 4);
     p_glUniform1i(p_glGetUniformLocation(prog_comp, "u_slot"), 5);

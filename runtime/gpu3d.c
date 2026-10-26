@@ -1672,6 +1672,10 @@ static int g_ui_nrect; static int g_ui_rect[32][4];
 static int ui_flat(const HPoly* h) {
     if (h->n < 3 || h->degenerate) return 0;
     for (u32 k = 0; k < h->n; k++) if (h->w[k] != 16384) return 0;
+    for (u32 k = 0; k < h->n; k++) {                              /* square to the screen (the touch arrow is turned: it stays with the finger) */
+        const Vtx* a = h->v[k], *b = h->v[(k + 1) % h->n];
+        if (abs(a->hpos[0] - b->hpos[0]) > 8 && abs(a->hpos[1] - b->hpos[1]) > 8) return 0;
+    }
     return 1;
 }
 static int ui_shift_classify(HPoly** list, u32 count, int side) {
@@ -1705,8 +1709,9 @@ static int ui_shift_classify(HPoly** list, u32 count, int side) {
     int any = 0;
     for (int a = 0; a < m; a++) {
         int r = parent[a], w = gb[r][2] - gb[r][0], hh = gb[r][3] - gb[r][1], mv;
-        if (g_ui_battle3d) mv = gb[r][1] >= 120 && hh <= 72;            /* the battle messages */
-        else mv = !(w >= 192 && gb[r][1] >= 96);                        /* everything but the dialogue box */
+        if (g_ui_battle3d) mv = gb[r][1] >= 96 && hh <= 80;             /* the battle messages (lines, or their box) */
+        else mv = !(w >= 192 && gb[r][1] >= 96) && w >= 24 && hh >= 12;   /* windows and icons, but not the dialogue box, nor the */
+                                                                        /* little marks over people (they belong to the field) */
         if (!mv) continue;
         list[idx[a]]->ui_moved = 1; any = 1;
         if (r == a && g_ui_nrect < 32) { int* q = g_ui_rect[g_ui_nrect++]; q[0] = gb[r][0]; q[1] = gb[r][1]; q[2] = gb[r][2]; q[3] = gb[r][3]; }
