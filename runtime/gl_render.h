@@ -48,7 +48,9 @@ typedef struct {
 #define GL_MAX_PIECES 24
 /* dynamic widescreen: the 3D screen's 2D windows moved right by px DS pixels (0: not); battle: only the battle messages */
 void gl_set_ui_shift(int px, int battle);
-int gl_ui_unshift(int* x, int y);                     /* a moved window's point back to where it really is (1: it was one) */
+int gl_ui_unshift(int* x, int y);
+void gl_set_ui_hold(int on);                          /* a submenu: move nothing */
+int gl_ui_area(void);                                 /* 8x8 cells under the 2D windows that would move */                     /* a moved window's point back to where it really is (1: it was one) */
 void gl_hold(void);                                   /* keep this frame's picture (the map window during battles) */
 void gl_set_skin(const uint8_t* rgba, int w, int h);
 void gl_present(const GlPresent* v);

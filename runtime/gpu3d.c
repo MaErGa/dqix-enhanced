@@ -1667,7 +1667,7 @@ static int ysort_cmp(const void* a, const void* b) {
  * fade). In battles (g_ui_battle3d) only the battle messages at the bottom
  * move, clear of the party's panels. The moved windows are kept (where they
  * were) for the mouse: gpu3d_ui_unshift. */
-int g_ui_shift3d, g_ui_battle3d;
+int g_ui_shift3d, g_ui_battle3d, g_ui_hold, g_ui_area3d;     /* hold: a submenu, nothing moved; area: 8x8 cells under moving windows */
 static int g_ui_nrect; static int g_ui_rect[32][4];
 static int ui_flat(const HPoly* h) {
     if (h->n < 3 || h->degenerate) return 0;
@@ -1681,17 +1681,36 @@ static int ui_flat(const HPoly* h) {
 static int ui_shift_classify(HPoly** list, u32 count, int side) {
     static int idx[WPOLY_MAX], parent[WPOLY_MAX], box[WPOLY_MAX][4];
     int m = 0;
+    g_ui_area3d = 0;
+    static uint8_t field[24][32]; memset(field, 0, sizeof field);  /* where the 3D scene itself is drawn (8x8 cells) */
     for (u32 i = 0; i < count; i++) {
         HPoly* h = list[i]; h->ui_moved = 0;
-        if (!ui_flat(h)) continue;
+        if (!ui_flat(h)) {
+            if (h->n < 3 || h->degenerate) continue;
+            int x0 = 1 << 30, x1 = -(1 << 30), y0 = 1 << 30, y1 = -(1 << 30);
+            for (u32 k = 0; k < h->n; k++) {
+                int x = h->v[k]->hpos[0] / 16 - side, y = h->v[k]->hpos[1] / 16;
+                if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+            }
+            if (x0 < 0) x0 = 0; if (y0 < 0) y0 = 0; if (x1 > 255) x1 = 255; if (y1 > 191) y1 = 191;
+            for (int cy = y0 >> 3; cy <= y1 >> 3 && x0 <= x1 && y0 <= y1; cy++) for (int cx = x0 >> 3; cx <= x1 >> 3; cx++) field[cy][cx] = 1;
+            continue;
+        }
         int x0 = 1 << 30, x1 = -(1 << 30), y0 = 1 << 30, y1 = -(1 << 30);
         for (u32 k = 0; k < h->n; k++) {
             int x = h->v[k]->hpos[0] / 16 - side, y = h->v[k]->hpos[1] / 16;
             if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
         }
-        if (x1 - x0 >= 250 && y1 - y0 >= 150) continue;              /* a fade or a card over the screen */
+        if (x1 - x0 >= 250 && y1 - y0 >= 150) {                      /* a fade or a card over the screen; */
+            if (((h->texparam >> 26) & 7) != 0) g_ui_area3d += 1000;     /* textured: a menu's own background (Stella's): a submenu */
+            continue;
+        }
         if (m == WPOLY_MAX) break;
         idx[m] = (int)i; parent[m] = m; box[m][0] = x0; box[m][1] = y0; box[m][2] = x1; box[m][3] = y1; m++;
+    }
+    {   /* hardly any scene behind the windows (Stella's screen, Equipment: a menu screen of its own) */
+        int n = 0; for (int cy = 0; cy < 24; cy++) for (int cx = 0; cx < 32; cx++) n += field[cy][cx];
+        if (n < 24 * 32 * 4 / 10) g_ui_area3d += 1000;
     }
     for (int a = 0; a < m; a++) for (int b = a + 1; b < m; b++) {
         if (box[a][0] > box[b][2] + 6 || box[b][0] > box[a][2] + 6 || box[a][1] > box[b][3] + 6 || box[b][1] > box[a][3] + 6) continue;
@@ -1713,6 +1732,7 @@ static int ui_shift_classify(HPoly** list, u32 count, int side) {
         else mv = !(w >= 192 && gb[r][1] >= 96) && w >= 24 && hh >= 12;   /* windows and icons, but not the dialogue box, nor the */
                                                                         /* little marks over people (they belong to the field) */
         if (!mv) continue;
+        if (g_ui_hold) continue;
         list[idx[a]]->ui_moved = 1; any = 1;
         if (r == a && g_ui_nrect < 32) { int* q = g_ui_rect[g_ui_nrect++]; q[0] = gb[r][0]; q[1] = gb[r][1]; q[2] = gb[r][2]; q[3] = gb[r][3]; }
     }
@@ -1720,7 +1740,7 @@ static int ui_shift_classify(HPoly** list, u32 count, int side) {
 }
 /* A point on the 3D screen (DS pixels) where a moved window shows: where it really is. */
 int gpu3d_ui_unshift(int* x, int y) {
-    if (!g_ui_shift3d) return 0;
+    if (!g_ui_shift3d || g_ui_hold) return 0;
     for (int i = 0; i < g_ui_nrect; i++) {
         const int* q = g_ui_rect[i];
         if (*x - g_ui_shift3d >= q[0] && *x - g_ui_shift3d <= q[2] && y >= q[1] && y <= q[3]) { *x -= g_ui_shift3d; return 1; }

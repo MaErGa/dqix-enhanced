@@ -1561,15 +1561,17 @@ static int hd_upload(int eng) {
  * box (wide, low: it stays in the middle) or covers most of the screen (a
  * card, a curtain). In battles only the battle messages at the bottom move. */
 static uint8_t g_move[24][32];
-static int g_ui_shift, g_ui_battle;
+static int g_ui_shift, g_ui_battle, g_ui_hold2, g_ui_area;
 void gl_set_ui_shift(int px, int battle) { g_ui_shift = px; g_ui_battle = battle; }
+void gl_set_ui_hold(int on) { g_ui_hold2 = on; }   /* a submenu: work out the windows, but move none */
+int gl_ui_area(void) { return g_ui_area; }
 int gl_ui_unshift(int* x, int y) {           /* a point on the 3D screen where a moved 2D window shows: where it really is */
     int sx = *x - g_ui_shift;
-    if (!g_ui_shift || sx < 0 || sx > 255 || y < 0 || y > 191 || !g_move[y >> 3][sx >> 3] || (g_comp_info[(y * 256 + sx) * 4] & 3) == 1) return 0;
+    if (!g_ui_shift || g_ui_hold2 || sx < 0 || sx > 255 || y < 0 || y > 191 || !g_move[y >> 3][sx >> 3] || (g_comp_info[(y * 256 + sx) * 4] & 3) == 1) return 0;
     *x = sx; return 1;
 }
 static int ui_classify(void) {
-    memset(g_move, 0, sizeof g_move);
+    memset(g_move, 0, sizeof g_move); g_ui_area = 0;
     if (g_ui_shift <= 0) return 0;
     static uint8_t cell[24][32]; static int16_t comp[24][32];
     int any = 0;
@@ -1597,7 +1599,8 @@ static int ui_classify(void) {
         int w = x1 - x0 + 1, hh = y1 - y0 + 1, move;
         if (g_ui_battle) move = y0 >= 12 && hh <= 10;
         else move = !(w >= 24 && y0 >= 12) && t < 32 * 24 * 6 / 10 && w >= 3 && hh >= 2;
-        if (move) for (int k = 0; k < t; k++) g_move[qy[k]][qx[k]] = 1;
+        if (t >= 32 * 24 * 6 / 10) g_ui_area += 1000;                  /* a screen of its own (its 2D over most of the picture) */
+        if (move && !g_ui_hold2) for (int k = 0; k < t; k++) g_move[qy[k]][qx[k]] = 1;
     }
     return g_ui_shift;
 }

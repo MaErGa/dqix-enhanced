@@ -273,6 +273,7 @@ static int scene_rule(void) {                                     /* 0, 'b' or '
     return 0;
 }
 static int g_scene_stack;                                         /* this frame: show stacked (both screens are one picture) */
+static int g_ui_plain;                                            /* dynamic widescreen: a submenu is open: the DS's picture as it is, 4:3 at the right */
 static void notice(const char* fmt, ...);
 /* Modern > "Widescreen: black sides in this place": add or remove this map in widescreen.txt */
 static void scene_toggle_bars(void) {
@@ -312,7 +313,7 @@ static void canvas_layout_for(GlPresent* v, int ww, int wh, int second) {
     int wide = g_gl && g_wide && !g_side_by_side && !two && !g_scene_stack;
     int single = g_single && !wide;                               /* one screen (in widescreen the left trigger hides the small one instead) */
     int corner = g_gl && g_corner && !g_side_by_side && !wide && !two && !single;
-    int shell = g_gl && g_opt.shell && !g_side_by_side && !corner && !wide && !two && !single;
+    int shell = g_gl && g_opt.shell && !g_side_by_side && !corner && !wide && !two && !single && !(g_wide && g_scene_stack);   /* (a movie in widescreen: plain stacked, no console) */
     int side = 0, which = -1;
     if (g_gl) which = gl_wide_shown(&side);                       /* how the last picture was composed */
     v->topx[0] = v->botx[0] = (float)side; v->topx[1] = v->botx[1] = 256;
@@ -336,7 +337,7 @@ static void canvas_layout_for(GlPresent* v, int ww, int wh, int second) {
         float* big = which == 0 ? v->top : v->bot, *small = which == 0 ? v->bot : v->top;
         float* bigx = which == 0 ? v->topx : v->botx;
         float wx0 = dyn ? 2 * S : S, wtx0 = (float)side, ww = 256;   /* wide: the field (or, without 3D, the DS's picture: dynamic, at the right) */
-        if (which >= 0) { wx0 = S - (float)side; wtx0 = 0; ww = 256 + 2 * (float)side; }
+        if (which >= 0 && !(dyn && g_ui_plain)) { wx0 = S - (float)side; wtx0 = 0; ww = 256 + 2 * (float)side; }   /* (a submenu: 4:3, at the right, black beside it) */
         float cx0 = v->cw - 256, ctx0 = (float)side, cww = 256;   /* corner: the DS's picture at the right */
         big[0] = cx0 + (wx0 - cx0) * t; big[2] = cww + (ww - cww) * t;
         bigx[0] = ctx0 + (wtx0 - ctx0) * t; bigx[1] = big[2];
@@ -1400,8 +1401,19 @@ static void present_gl(void) {
     {   /* dynamic widescreen: the game's windows move right (the field doesn't); in battles only the messages (gpu3d.c) */
         int side = 0; gl_wide_shown(&side);
         int on = g_gl && g_wide && g_wide_dyn && !g_wide_pop && !g_side_by_side && !(g_two && !g_single);
-        extern int g_ui_shift3d, g_ui_battle3d; g_ui_shift3d = on ? side : 0; g_ui_battle3d = g_hud_n > 0;   /* (gpu3d.c) */
+        extern int g_ui_shift3d, g_ui_battle3d, g_ui_hold, g_ui_area3d;
+        g_ui_shift3d = on ? side : 0; g_ui_battle3d = g_hud_n > 0;                                            /* (gpu3d.c) */
         gl_set_ui_shift(on ? side : 0, g_hud_n > 0);                                                          /* (2D ones) */
+        /* a menu screen of its own (Stella's, Equipment: its own background over the whole picture):
+         * the DS's picture as it is, 4:3 at the right, nothing moved; back once it's the field again.
+         * Windows over the field (the menu, its lists) keep moving right instead. */
+        static int over, under;
+        int area = on && !g_ui_battle3d ? g_ui_area3d + gl_ui_area() : 0;
+        if (area > 200) { over++; under = 0; } else { under++; over = 0; }
+        if (!on) g_ui_plain = 0;
+        else if (!g_ui_plain && over >= 2) g_ui_plain = 1;
+        else if (g_ui_plain && under >= 6) g_ui_plain = 0;
+        g_ui_hold = g_ui_plain; gl_set_ui_hold(g_ui_plain);
     }
     gl_compose((pow >> 15) & 1, pow & 1);
     wide_update((pow >> 15) & 1);
