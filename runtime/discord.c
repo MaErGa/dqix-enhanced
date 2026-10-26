@@ -119,7 +119,10 @@ static int thread_main(void* arg) {
         }
         char buf[4096]; int r = conn_read(buf, sizeof buf - 1);
         if (r < 0) { conn_close(); connected = ready = 0; continue; }
-        if (r > 0) { buf[r] = 0; if (strstr(buf, "\"READY\"")) { ready = 1; changed = 1; } }
+        if (r > 0) {                                                /* frames start with an 8-byte binary header (zeros in it): search all r bytes */
+            for (int i = 0; i + 7 <= r && !ready; i++) if (!memcmp(buf + i, "\"READY\"", 7)) { ready = 1; changed = 1; }
+            if (getenv("DQIX_DISCORDLOG")) { for (int i = 0; i < r; i++) if (!buf[i]) buf[i] = '.'; buf[r] = 0; fprintf(stderr, "discord: %s\n", buf); }
+        }
         if (ready && changed) {
             char js[1024];
             snprintf(js, sizeof js,
