@@ -17,6 +17,10 @@ adventure; try this one in its own folder with a copy of your save.
   stacked in the bottom left, see-through with solid white lines, and
   while the attacks play they shrink to each name and HP/MP, with the
   battle messages moved right of them. Movies show both screens stacked.
+- **The European version builds again** (it stopped at the end with
+  "undefined reference" errors since HD text). And when a build step
+  fails without an error of its own, the build now says which step it
+  was.
 - **The Alchemimicon** shows its recipe list big and the recipe's details
   small (the screens trade places while it is open).
 - **The inn's guests** (Quester's Rest) are drawn again: they were
