@@ -1752,6 +1752,7 @@ static int ui_shift_classify(HPoly** list, u32 count, int side) {
             if (q != d || gb[q][2] - gb[q][0] < 224 || gb[q][1] < 96) continue;
             if (gb[r][3] <= gb[q][1] + 2 && gb[r][3] >= gb[q][1] - 12 && gb[r][0] >= gb[q][0] - 8 && gb[r][2] <= gb[q][2] + 8) dialogue = 1;
         }
+        if (r == a && w >= 240 && hh >= 150) g_ui_area3d += 1000;       /* flat pictures over the whole screen (DQVC): a screen of its own */
         int sh = g_ui_shift3d;
         if (g_ui_battle3d) {                                             /* the battle messages (lines, or their box): clear of the panels, */
             mv = gb[r][1] >= 96 && hh <= 80;                             /* as far as the right edge allows */
@@ -1759,7 +1760,7 @@ static int ui_shift_classify(HPoly** list, u32 count, int side) {
             if (need > sh) sh = need;
             if (sh > room) sh = room < g_ui_shift3d ? g_ui_shift3d : room;
         }
-        else mv = !dialogue && w >= 40 && hh >= 12;                      /* windows (menus, lists, the gold); not the speech bubbles, */
+        else mv = !dialogue && w >= 40 && hh >= 12 && !(w >= 240 && hh >= 150);                      /* windows (menus, lists, the gold); not the speech bubbles, */
                                                                         /* item icons or the draggable X Menu (they belong to the field) */
         if (r == a) g_ui_windows3d += (w + 1) * (hh + 1) / 64;
         {                                                                /* tests: the windows found */
@@ -1783,6 +1784,7 @@ static int ui_shift_classify(HPoly** list, u32 count, int side) {
     }
     return any;
 }
+int gpu3d_poly_count(void) { return (int)render_n; }             /* the 3D shown: how many polygons */
 /* Is a small 2D piece (DS pixels) right next to a moved 3D window (a pointer drawn as a sprite)? */
 int gpu3d_ui_near_moved(int x0, int y0, int x1, int y1) {
     if (!g_ui_shift3d || g_ui_hold || g_ui_battle3d) return 0;

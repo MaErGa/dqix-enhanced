@@ -1642,7 +1642,8 @@ static int ui_classify(void) {
             if (wide) { top = ry; if (bot < 0) bot = ry; }
             else if (bot >= 0) break;
         }
-        if (bot >= 0 && top >= 12 && bot - top >= 2) bands[g] = top;     /* (a big window reaching higher is no dialogue box) */
+        int above = 0; if (top > 0) for (int cx = 0; cx < 32; cx++) above += gcell[g][top - 1][cx];
+        if (bot >= 0 && top >= 12 && bot - top >= 2 && above < 10) bands[g] = top;   /* (a big window reaching higher, or sitting on it, is no dialogue box) */
     }
     int band_any = bands[0] < bands[1] ? bands[0] : bands[1];
     int tags[16][5], ntag = 0;                                           /* the dialogue box's small windows (for after) */
@@ -1704,6 +1705,17 @@ static int ui_classify(void) {
             int box = sw >= 30 && shh <= 8 && b0 < band_any;             /* a message box across the screen on its own (an accolade): it stays in the middle */
             if (box) tag = 1;
             int move = !tag && sw >= 5 && (shh >= 2 || sw >= 8);         /* windows at least 40 pixels wide (not the field's marks; a wide strip: a window's edge) */
+            if (move && g == 1) {                                        /* sprites: a window has its white frame line across its top */
+                extern uint8_t g_comp_layer[256 * 192];                  /* (the items flying into the Krak Pot are sprites that size) */
+                int framed = 0;
+                for (int y = b0 * 8; y < b0 * 8 + 12 && y < 192 && !framed; y++) {
+                    int n = 0;
+                    for (int x = a0 * 8; x <= a1 * 8 + 7; x++) { uint32_t c = g_engine_out[0][y * 256 + x];
+                        n += g_comp_layer[y * 256 + x] == 4 && ((c >> 16) & 0xFF) >= 0xD0 && ((c >> 8) & 0xFF) >= 0xD0 && (c & 0xFF) >= 0xD0; }
+                    framed = n * 10 >= sw * 8 * 6;
+                }
+                if (!framed) move = 0;
+            }
             if (!move && !tag && sw <= 4 && shh <= 3 && gpu3d_ui_near_moved(a0 * 8, b0 * 8, a1 * 8 + 7, b1 * 8 + 7)) move = 1;   /* a pointer by a moved 3D window */
             if (!move && !tag && g == 1) {                               /* sprites on a moved window (its icons) or just left of it (its pointer) */
                 int l = sw <= 4 && shh <= 3 ? 3 : 1;

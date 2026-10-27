@@ -301,8 +301,8 @@ static void scene_toggle_bars(void) {
 static int alchemimicon_open(void) {
     static int off = -1; if (off < 0) off = getenv("DQIX_NO_ALCHEMY_SWAP") != NULL;
     if (off) return 0;
-    extern uint64_t overlays_loaded_mask(void);
-    return (overlays_loaded_mask() >> 6) & 1;
+    extern uint64_t overlays_loaded_mask(void); extern int gpu3d_poly_count(void);
+    return ((overlays_loaded_mask() >> 6) & 1) && gpu3d_poly_count() == 0;   /* (not the Krak Pot, which has it too: its pot is 3D) */
 }
 
 /* Widescreen: DS pixels to add left and right of the 3D picture. 16:9 in a
