@@ -102,8 +102,8 @@ void menu_init(SDL_Window* win, const char* const* shell_names, int n_shells) {
     item(view, MI_STACKED, L"S&tacked\tF2");
     item(view, MI_SIDE, L"&Side by side\tF2");
     item(view, MI_CORNER, L"Top screen in the &corner\tF2");
-    item(view, MI_WIDE, L"&Widescreen (the action wide, the other screen in a corner)\tF2");
-    item(view, MI_WIDE_DYN, L"Widescreen, d&ynamic (experimental: the map stays in the corner, the game's windows move right)\tF2");
+    item(view, MI_WIDE, L"&Basic Widescreen (the action wide, the other screen in a corner)\tF2");
+    item(view, MI_WIDE_DYN, L"D&ynamic Widescreen (Experimental): the map stays in the corner, the game's windows move right\tF2");
     item(view, MI_TWO, L"Two wi&ndows (one screen in each, for two monitors)\tF2");
     sep(view);
     item(view, MI_SINGLE, L"Single scr&een (widescreen: hide the small screen)\tU");
@@ -157,8 +157,8 @@ void menu_init(SDL_Window* win, const char* const* shell_names, int n_shells) {
 
     HMENU modern = sub(g_bar, L"&Modern");
     item(modern, MI_ANALOG, L"Walk in any &direction with the left stick");
-    item(modern, MI_WIDE, L"&Widescreen: the action wide, the other screen in a corner");
-    item(modern, MI_WIDE_DYN, L"Widescreen, d&ynamic (experimental)");
+    item(modern, MI_WIDE, L"&Basic Widescreen: the action wide, the other screen in a corner");
+    item(modern, MI_WIDE_DYN, L"D&ynamic Widescreen (Experimental)");
     item(modern, MI_CORNER, L"Top screen in the &corner (the field as on the DS)");
     item(modern, MI_POPOUT, L"Widescreen: the small screen in its own &window (a clean field)");
     item(modern, MI_SCENE_BARS, L"Widescreen: &black sides in this place (remembered)");

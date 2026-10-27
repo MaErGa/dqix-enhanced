@@ -45,12 +45,15 @@ original)
 - **Walk in any direction with the left stick** (on at first): the stick
   steers like the DS stylus while you walk around, instead of the D-pad's 8
   directions (without the stylus's arrow on the screen).
-- **Widescreen**: the action drawn wider than the DS's screen, so you see
+- **Basic Widescreen**: the action drawn wider than the DS's screen, so you see
   more of the world left and right, with the other screen (the map, the
   battle commands) small in a corner: pick the corner, size and how
   see-through it is, also from a controller. 16:9 in a window, as wide as
-  your monitor in fullscreen. A dynamic version (experimental) slides the
-  field over to make room for menus.
+  your monitor in fullscreen.
+- **Dynamic Widescreen (Experimental)**: the field never moves; the map
+  stays top left and the game's own windows move right, clear of it, with
+  dialogue in the middle; screens of their own show 4:3; in battles the
+  party's panels sit stacked in the bottom left.
 - **Single screen**: one screen as big as it gets, switched with a trigger.
 - **Top screen in the corner**: the same, with the field as on the DS.
 - Coming: a free camera (see the roadmap).

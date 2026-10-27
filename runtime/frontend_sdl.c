@@ -647,8 +647,8 @@ static void settings_save(void) {
     fprintf(f, "widescreen_battle_hud = %d\n", g_hud);
     fprintf(f, "# window size: 1 to 8 times the DS screens (F3)\n");
     fprintf(f, "window_scale = %d\n", g_scale);
-    fprintf(f, "# stacked, side_by_side, corner (the top screen small beside the field), wide (widescreen),\n");
-    fprintf(f, "# wide_dynamic (widescreen, the game's windows moved right of the map; experimental) or two_windows (one screen in each); F2\n");
+    fprintf(f, "# stacked, side_by_side, corner (the top screen small beside the field), wide (Basic Widescreen),\n");
+    fprintf(f, "# wide_dynamic (Dynamic Widescreen, experimental: the game's windows moved right of the map) or two_windows (one screen in each); F2\n");
     fprintf(f, "layout = %s\n", g_side_by_side ? "side_by_side" : g_wide ? (g_wide_dyn ? "wide_dynamic" : "wide") : g_corner ? "corner" : g_two ? "two_windows" : "stacked");
     fprintf(f, "# one screen only (U / left trigger): 0 or 1\n");
     fprintf(f, "single_screen = %d\n", g_single);
@@ -2465,14 +2465,15 @@ static void do_action(int id) {
             "Walk in any direction with the left stick (on at first): on the DS the D-pad walks in 8 directions and only the stylus walks in any. With this on, "
             "a controller's left stick steers like the stylus while you walk around (the game's own stylus walking). In menus, dialogue and "
             "battles the stick stays a D-pad. Friends in a session don't need it on.\n\n"
-            "Widescreen: the action (the field, or a battle) is drawn wider than the DS's screen, so you see more of the world left and right, "
+            "Basic Widescreen: the action (the field, or a battle) is drawn wider than the DS's screen, so you see more of the world left and right, "
             "and the other screen (the map, or the battle commands) sits small in a corner over it. K (or the right stick click) moves it to "
             "the next corner, I changes its size, O (or the left stick click) how see-through it is; it turns solid while the mouse is on it. "
             "U (or the left trigger) hides it; holding F9 (or the right trigger) shows it big until you let go. In a window it is 16:9; in "
             "fullscreen it fills the monitor. Text, menus and the touch screen's buttons stay in the middle, as on the DS. People and things "
             "at the sides stay in view (except while playing with friends far away). Enhanced mode only (the 3D on the graphics card).\n\n"
-            "Widescreen, dynamic (experimental): the small screen stays top left, and the field slides over to make room when a menu "
-            "would be under it.\n\n"
+            "Dynamic Widescreen (Experimental): the field never moves; the map stays top left, and the game's windows over the field move "
+            "right, clear of it (dialogue stays in the middle); screens of their own (Stella's lists, Equipment) show 4:3 at the right; "
+            "in battles the party's panels sit stacked in the bottom left.\n\n"
             "Top screen in the corner: the field as on the DS (4:3), the top screen beside it.\n\n"
             "Two windows: one screen in each, to put them on two monitors (each can be fullscreen).\n\n"
             "Single screen (U or the left trigger): only one screen, as big as it gets; F9 or the right trigger shows the other one.\n\n"

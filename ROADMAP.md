@@ -3,31 +3,12 @@
 What's planned for DQIX Enhanced, roughly in order. Done items move to the
 bottom with the version they arrived in.
 
-## Next: v32
+## Next: v33
 
-Worked on now, arriving in nightlies (credits in the release notes).
-
-- [ ] **Widescreen**: fades and full-screen effects reach the sides (the
-      poison bog's flash, sepia scenes, the landslide card, the Zoom spell);
-      cutscenes drawn across both screens shown stacked; screens swapped in
-      menus like the Alchemimicon and the Defeated Monsters list.
-- [ ] Flickering sleeping sprites when the camera turns, the window light in
-      the Upover inn, and a flash in Coffinwell's well (none happen on a DS).
-- [ ] **Mods menu**: texture packs (dump the game's textures to PNG, replace
-      any of them at any size), built-in xBRZ upscaling of 3D textures (off
-      at first), music packs (OGG/FLAC per song, with loop points). Nothing
-      of the game is shipped: only the loader. Texture dumping and loading
-      build on romusan495's work.
-- [ ] **HD text**: the game's letters redrawn with open-licence fonts
-      (Arthur Ferreira Soares).
-- [ ] **Experimental widescreen, redone**: menus slide to the right so the
-      minimap keeps its corner; in battles the party stacked in the bottom
-      left in modern-looking panels, hidden while attacks play; experience
-      and level-ups above the dialogue (building on romusan495's battle
-      HUD).
-- [ ] **The European version** with a Language menu (romusan495).
-- [ ] **A Linux AppImage builder** (rakmahefa).
-- [ ] **Discord activity** ("Playing DQIX Enhanced").
+- [ ] **Steering the boat with the stick** in any direction, like walking.
+- [ ] Dynamic Widescreen: the Zoom menu's smear (#16), and whatever the
+      play testing of v32 turns up.
+- [ ] The window light in the Upover inn flickers (#19; not on a DS).
 
 ## Then
 
@@ -116,7 +97,7 @@ the same room.
 
 ## Reach
 
-- [ ] (In v32, above.) **The European version, with its five languages** (English, French,
+- [x] (In v32.) **The European version, with its five languages** (English, French,
       German, Italian, Spanish; players have asked for them): a map of the
       European game made with the decomp's `dsd` tool (only the USA and
       Japanese maps exist), the USA-specific fixes found in it (the leak
@@ -135,6 +116,14 @@ the same room.
 
 ## Done
 
+- [x] **v32 released as stable** (from v32-nightly1 to nightly3 and the
+      fixes after): the European version and its Language menu
+      (romusan495), a Linux AppImage builder (rakmahefa), HD text (Arthur
+      Ferreira Soares), the Mods menu (texture packs on romusan495's work,
+      xBR upscaling, music packs, song export), Dynamic Widescreen redone
+      (windows move right, 4:3 menu screens, the battle panels bottom left),
+      full-screen effects and movies in widescreen, the Alchemimicon's
+      screens swapped, the inn's guests, Discord activity.
 - [x] Installer that repairs old MSYS2s, ROMs in a zip, Controls fixed,
       fullscreen fixes, quitting asks first, the stick's walking, smooth
       outlines and shadows, black sides for DS-only places, Tab fast
