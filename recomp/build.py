@@ -621,7 +621,7 @@ def main():
     ap.add_argument("--hle", help="file listing '<module> <addr> [name]' functions the runtime provides instead (as hle_<name>, or under the generated name)")
     ap.add_argument("--interpret", help="file listing '<module> <addr>' functions to run in the interpreter (code that changes at run time)")
     ap.add_argument("--patch", help="file listing '<module> <addr> <new 32-bit ARM word>' instruction overrides (e.g. removing anti-piracy traps)")
-    ap.add_argument("--wrap", help="file listing '<module> <addr>' functions recompiled as <name>_orig: the runtime provides <name>, which calls it (hooks around the game's own code)")
+    ap.add_argument("--wrap", help="file listing '<module> <addr> [name]' functions recompiled as <cname>_orig: the runtime provides <cname> (or, named, wrap_<name>, which calls wrap_<name>_orig), around the game's own code")
     ap.add_argument("--tags", help="file listing '<module> <call addr> <tag>': the 3D drawn during these calls carries the tag (e.g. the stylus arrow, hidden while walking with a stick); the game's code is unchanged")
     args = ap.parse_args()
 
@@ -646,12 +646,12 @@ def main():
             line = line.split("#")[0].split()
             if len(line) in (2, 3):
                 hle[(line[0], int(line[1], 16))] = line[2] if len(line) == 3 else None
-    wrap = set()
+    wrap = {}                  # (module, addr) -> the runtime's name for it (wrap_<name>), or None (it provides <cname> itself)
     if args.wrap:
         for line in open(args.wrap):
             line = line.split("#")[0].split()
-            if len(line) == 2:
-                wrap.add((line[0], int(line[1], 16)))
+            if len(line) in (2, 3):
+                wrap[(line[0], int(line[1], 16))] = line[2] if len(line) == 3 else None
     os.makedirs(args.out, exist_ok=True)
 
     # Translate everything in memory first: translating can discover secondary
@@ -682,6 +682,12 @@ def main():
                 sig = f"void {fn.cname}(Cpu* c)"
                 assert sig in body, sig
                 body = body.replace(sig, f"void {fn.cname}_orig(Cpu* c)", 1)
+                name = wrap[(fn.module.name, fn.addr)]
+                if name:      # named: the runtime's wrap_<name>, whatever the address is in this ROM (the European one moves)
+                    body += (f"\n/* {fn.name}: watched by the runtime's wrap_{name} */\n"
+                             f"void wrap_{name}(Cpu* c);\n"
+                             f"void {fn.cname}(Cpu* c) {{ wrap_{name}(c); }}\n"
+                             f"void wrap_{name}_orig(Cpu* c) {{ {fn.cname}_orig(c); }}")
                 rc.stats["wrapped_functions"] = rc.stats.get("wrapped_functions", 0) + 1
             code[(fn.module.name, fn.addr)] = body
         queue, rc.pending = rc.pending, []

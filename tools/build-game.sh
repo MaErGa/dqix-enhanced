@@ -9,11 +9,14 @@
 #   game/    the result: dqix.exe and everything it needs, including a copy
 #            of the ROM, so the folder can be moved anywhere
 set -e
+STEP="starting"
+# a step that fails without a message of its own still says which it was
+trap 'rc=$?; if [ $rc -ne 0 ]; then echo; echo "   The build stopped while: $STEP (error $rc)."; fi' EXIT
 cd "$(dirname "$0")/.."
 ROM="$1"
 [ -f "$ROM" ] || { echo "No ROM given (or it doesn't exist): $ROM"; exit 1; }
 
-echo "== Checking the ROM"
+STEP="checking the ROM"; echo "== Checking the ROM"
 # no checksum: any version can be tried. The game code in the header says which it is.
 CODE=$(dd if="$ROM" bs=1 skip=12 count=4 2>/dev/null | tr -cd 'A-Za-z0-9') || true
 case "$CODE" in
@@ -28,9 +31,11 @@ YDQJ) echo "   Dragon Quest IX (Japan): only the USA and European versions are s
 esac
 
 PY=python3; command -v $PY >/dev/null 2>&1 || PY=python
-echo "== Extracting the game's code"
+command -v $PY >/dev/null 2>&1 || { echo "   Python is missing from the build tools (MSYS2). In the MSYS2 UCRT64 window run:"
+    echo "   pacman -S mingw-w64-ucrt-x86_64-python mingw-w64-ucrt-x86_64-python-yaml"; echo "   then run this again."; exit 1; }
+STEP="extracting the game's code (tools/extract_rom.py)"; echo "== Extracting the game's code"
 $PY tools/extract_rom.py "$ROM" build/extract
-echo "== Recompiling it to C (about a minute)"
+STEP="recompiling it to C"; echo "== Recompiling it to C (about a minute)"
 # the symbol map and address lists are the USA version's; region.py moves them for the European one
 REGION=$($PY tools/region.py "$ROM" build/extract build/region)
 if [ "$REGION" = eur ]; then CFG=build/region; CONFIG=build/region/arm9; else CFG=.; CONFIG=config/usa/arm9; fi
@@ -76,7 +81,7 @@ RC
     fi
 }
 
-echo "== Compiling (the first time takes a while; later builds only redo what changed)"
+STEP="compiling"; echo "== Compiling (the first time takes a while; later builds only redo what changed)"
 mkdir -p game
 case "$(uname -s)" in
 MINGW*|MSYS*)

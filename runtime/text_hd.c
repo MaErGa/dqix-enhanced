@@ -229,7 +229,7 @@ const uint8_t* tx_font_sheet(int font, int* width_px, int* stride) {
  * (x+col, y+row) is found (func_0205b1ac) and that pixel's nibble set to the
  * colour. The same addresses are worked out here, before (what was there)
  * and after the call (tag what it drew). Only reads: the game is unaffected. */
-void fn_main_0205b36c_orig(Cpu* c);
+void wrap_glyph_tiled_orig(Cpu* c);
 
 typedef struct { uint32_t addr; uint8_t hi, col, row, under; TxTag keep; } Px;
 
@@ -242,8 +242,8 @@ static int region_find(uint32_t list, int count, int px, int py, uint32_t* off, 
     return 0;
 }
 
-void fn_main_0205b36c(Cpu* c) {
-    if (!g_tx_active) { fn_main_0205b36c_orig(c); return; }
+void wrap_glyph_tiled(Cpu* c) {
+    if (!g_tx_active) { wrap_glyph_tiled_orig(c); return; }
     uint32_t canvas_obj = c->r[0], glyph = c->r[1];
     int x = (int16_t)c->r[2], y = (int16_t)c->r[3];
     uint32_t sp = c->r[13];
@@ -293,7 +293,7 @@ void fn_main_0205b36c(Cpu* c) {
             }
         }
     }
-    g_in_glyph++; fn_main_0205b36c_orig(c); g_in_glyph--;
+    g_in_glyph++; wrap_glyph_tiled_orig(c); g_in_glyph--;
     { static int lg = -1; if (lg < 0) lg = getenv("DQIX_TXLOG") != NULL;
       if (lg) fprintf(stderr, "[f%llu] glyph font %d idx %d at %d,%d col %d canvas %08x px %d\n", (unsigned long long)g_frame, font, index, x, y, color, ram_ok(canvas_obj) ? rd32(canvas_obj) : 0, n); }
     if (!n || index < 0) return;
@@ -469,9 +469,9 @@ int tx_tex_untagged(uint32_t teximg) {
  * func_02045864(x, y, glyph, buffer, [sp] width, [sp+4] height, [sp+8] colour,
  * [sp+12] font): a plain 4-bit buffer, (width / 2) bytes a row, the odd pixel
  * of a byte in its high nibble; pixels outside width x height are skipped. */
-void fn_main_02045864_orig(Cpu* c);
-void fn_main_02045864(Cpu* c) {
-    if (!g_tx_active) { fn_main_02045864_orig(c); return; }
+void wrap_glyph_plain_orig(Cpu* c);
+void wrap_glyph_plain(Cpu* c) {
+    if (!g_tx_active) { wrap_glyph_plain_orig(c); return; }
     int x = (int32_t)c->r[0], y = (int32_t)c->r[1];
     uint32_t glyph = c->r[2], buf = c->r[3], sp = c->r[13];
     int W = (int32_t)rd32(sp), H = (int32_t)rd32(sp + 4), color = rd8(sp + 8) & 15, font = rd8(sp + 12);
@@ -505,7 +505,7 @@ void fn_main_02045864(Cpu* c) {
             }
         }
     }
-    g_in_glyph++; fn_main_02045864_orig(c); g_in_glyph--;
+    g_in_glyph++; wrap_glyph_plain_orig(c); g_in_glyph--;
     if (!n || index < 0) return;
     TxInst* in = inst_get(buf, glyph, x, y, color, font);
     in->w = (uint8_t)gw; in->index = (uint16_t)index;
@@ -523,14 +523,14 @@ void fn_main_02045864(Cpu* c) {
 }
 
 /* memcpy(dst, src, n): the game's own copies carry the tags along */
-void fn_main_02001a40_orig(Cpu* c);
-void fn_main_02001a40(Cpu* c) {
+void wrap_memcpy_orig(Cpu* c);
+void wrap_memcpy(Cpu* c) {
     uint32_t dst = c->r[0], src = c->r[1], len = c->r[2];
 #ifdef DQIX_PIXDBG
     { static long lg = -2; if (lg == -2) { const char* e = getenv("DQIX_MEMCPYLOG"); lg = e ? strtol(e, NULL, 16) : -1; }
       if (lg >= 0 && (lg == 0 || (c->r[14] & ~1u) - (uint32_t)lg < 0x400)) fprintf(stderr, "[f%llu] memcpy %08x <- %08x x%u lr %08x\n", (unsigned long long)g_frame, dst, src, len, c->r[14]); }
 #endif
-    fn_main_02001a40_orig(c);
+    wrap_memcpy_orig(c);
     if (g_tx_any && len && len < (8u << 20)) tx_copy(dst, src, (int)len);
 }
 
