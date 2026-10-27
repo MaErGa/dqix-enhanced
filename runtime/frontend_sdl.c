@@ -376,7 +376,7 @@ static void canvas_layout_for(GlPresent* v, int ww, int wh, int second) {
                 if (g_hud_win[2]) {                                   /* a window alone: big, at the top in the middle */
                     float* q = v->piece[v->npiece++], w = (float)g_hud_win[2], h = (float)g_hud_win[3], kw = fminf(1.0f, fminf(200.0f / w, 110.0f / h));
                     q[4] = 1; q[5] = (float)g_hud_win[0]; q[6] = (float)g_hud_win[1]; q[7] = w; q[8] = h;
-                    q[2] = w * kw; q[3] = h * kw; q[0] = (v->cw - q[2]) / 2; q[1] = 6;
+                    q[2] = w * kw; q[3] = h * kw; q[0] = (v->cw - q[2]) / 2; q[1] = 6; q[9] = 0.7f;   /* (see-through like the panels) */
                 }
                 const float k = 0.5f, gap = 2, see = 0.7f;            /* half size; the fill 70% solid, white lines and letters solid */
                 float total = 0;
@@ -1430,7 +1430,7 @@ static void present_gl(void) {
         if (menu_screen) { over++; under = 0; } else { under++; over = 0; }
         if (!on) g_ui_plain = 0;
         else if (!g_ui_plain && over >= 2) g_ui_plain = 1;
-        else if (g_ui_plain && under >= 6) g_ui_plain = 0;
+        else if (g_ui_plain && (under >= 6 || (under >= 1 && g_ui_scene >= 24 * 32 * 3 / 4))) g_ui_plain = 0;   /* (the field back: at once) */
         g_ui_hold = g_ui_plain; gl_set_ui_hold(g_ui_plain);
         {   static int lg = -1; if (lg < 0) lg = getenv("DQIX_UILOG") != NULL;     /* tests: what the menu-screen test sees */
             extern int g_ui_npoly;

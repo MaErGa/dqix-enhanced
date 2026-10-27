@@ -489,6 +489,7 @@ uint16_t g_tx_slot[2][256 * 192][4];
 int g_comp_has3d;
 uint32_t g_comp_c2[256 * 192];
 uint8_t g_comp_info[256 * 192 * 4];
+uint8_t g_comp_layer[256 * 192];         /* GL mode, engine A: the layer on top (BG 0-3, 4 sprites, 5 backdrop, 6 the 3D) */
 
 /* ---------------------------------------------------------------- display capture
  * DISPCAPCNT: if enabled when a frame starts, each line (up to the capture
@@ -850,6 +851,10 @@ static void compose_line(Engine* e, int eng, int y, uint32_t disp, uint32_t* lin
           if (x == px_x && y == px_y) fprintf(stderr, "[f%llu] TOP eng%d v1 %08x v2 %08x objprio %d objcol %08x\n", (unsigned long long)g_frame, eng, v1, v2, objl.prio[x], objl.col[x]); }
 #endif
         int fx = (wm & 0x20) != 0;
+        if (gl3d) {                                                 /* which layer is on top (dynamic widescreen: windows by layer) */
+            uint32_t f = v1 >> 24;
+            g_comp_layer[y * 256 + x] = (uint8_t)(f == MARK3D ? 6 : (f & 0x90) ? 4 : (f & 1) ? 0 : (f & 2) ? 1 : (f & 4) ? 2 : (f & 8) ? 3 : 5);
+        }
         if (!dst) { line6[x] = color_composite(v1, v2, bldcnt, fx, eva, evb, evy); continue; }
         if (gl3d && (v1 >> 24) == MARK3D) {                         /* 3D on top */
             uint32_t f2 = v2 >> 24;
