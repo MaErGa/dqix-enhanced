@@ -1733,11 +1733,20 @@ static int ui_shift_classify(HPoly** list, u32 count, int side) {
         if (box[a][0] < gb[r][0]) gb[r][0] = box[a][0]; if (box[a][1] < gb[r][1]) gb[r][1] = box[a][1];
         if (box[a][2] > gb[r][2]) gb[r][2] = box[a][2]; if (box[a][3] > gb[r][3]) gb[r][3] = box[a][3];
     }
+    static int lb[WPOLY_MAX][4];                                         /* each window's low part (from 90 down): a dialogue box */
+    for (int a = 0; a < m; a++) { lb[a][0] = lb[a][1] = 1 << 30; lb[a][2] = lb[a][3] = -(1 << 30); }
+    for (int a = 0; a < m; a++) {
+        if (box[a][1] < 90) continue;
+        int r = parent[a];
+        if (box[a][0] < lb[r][0]) lb[r][0] = box[a][0]; if (box[a][1] < lb[r][1]) lb[r][1] = box[a][1];
+        if (box[a][2] > lb[r][2]) lb[r][2] = box[a][2]; if (box[a][3] > lb[r][3]) lb[r][3] = box[a][3];
+    }
     g_ui_nrect = 0; g_ui_windows3d = 0;
     int any = 0;
     for (int a = 0; a < m; a++) {
         int r = parent[a], w = gb[r][2] - gb[r][0], hh = gb[r][3] - gb[r][1], mv;
-        int dialogue = w >= 224 && gb[r][1] >= 96;                       /* wide (nearly edge to edge) and low: the dialogue box stays in the middle, */
+        int dialogue = (w >= 224 && gb[r][1] >= 96) ||                   /* wide (nearly edge to edge) and low: the dialogue box stays in the middle, */
+                       (lb[r][2] - lb[r][0] >= 224 && lb[r][1] - gb[r][1] <= 60);   /* (also with its Yes/No touching it: their window starts higher) */
         for (int d = 0; d < m && !dialogue && w <= 100 && hh <= 56; d++) {   /* and so does a small window just above it (its Yes/No, its name tag) */
             int q = parent[d];
             if (q != d || gb[q][2] - gb[q][0] < 224 || gb[q][1] < 96) continue;

@@ -296,6 +296,15 @@ static void scene_toggle_bars(void) {
     fclose(f);
 }
 
+/* Is the Alchemimicon (the recipe book, overlay 6) open? Its recipe list is on the
+ * bottom screen: shown big instead (DQIX_NO_ALCHEMY_SWAP: tests, not). */
+static int alchemimicon_open(void) {
+    static int off = -1; if (off < 0) off = getenv("DQIX_NO_ALCHEMY_SWAP") != NULL;
+    if (off) return 0;
+    extern uint64_t overlays_loaded_mask(void);
+    return (overlays_loaded_mask() >> 6) & 1;
+}
+
 /* Widescreen: DS pixels to add left and right of the 3D picture. 16:9 in a
  * window; in fullscreen, as wide as the monitor (up to 2:1 more). */
 static int wide_side_target(void) {
@@ -318,6 +327,7 @@ static void canvas_layout_for(GlPresent* v, int ww, int wh, int second) {
     int shell = g_gl && g_opt.shell && !g_side_by_side && !corner && !wide && !two && !single && !(g_wide && g_scene_stack);   /* (a movie in widescreen: plain stacked, no console) */
     int side = 0, which = -1;
     if (g_gl) which = gl_wide_shown(&side);                       /* how the last picture was composed */
+    int flip = alchemimicon_open();                               /* the Alchemimicon: its recipe list (the bottom screen) big */
     v->topx[0] = v->botx[0] = (float)side; v->topx[1] = v->botx[1] = 256;
     if (wide) {
         /* Modern: the screen with the 3D (the field, or the battle) fills the
@@ -336,10 +346,11 @@ static void canvas_layout_for(GlPresent* v, int ww, int wh, int second) {
         int dyn = g_wide_dyn && !pop && !g_small_hide && !g_peek;
         float t = 1.0f;                                           /* (the field no longer slides: the game's windows move instead, gl_set_ui_shift) */
         v->cw = 256 + 2 * S; v->ch = 192;
-        float* big = which == 0 ? v->top : v->bot, *small = which == 0 ? v->bot : v->top;
-        float* bigx = which == 0 ? v->topx : v->botx;
+        int topbig = (which == 0) != flip;
+        float* big = topbig ? v->top : v->bot, *small = topbig ? v->bot : v->top;
+        float* bigx = topbig ? v->topx : v->botx;
         float wx0 = dyn ? 2 * S : S, wtx0 = (float)side, ww = 256;   /* wide: the field (or, without 3D, the DS's picture: dynamic, at the right) */
-        if (which >= 0 && !(dyn && g_ui_plain)) { wx0 = S - (float)side; wtx0 = 0; ww = 256 + 2 * (float)side; }   /* (a submenu: 4:3, at the right, black beside it) */
+        if (which >= 0 && !flip && !(dyn && g_ui_plain)) { wx0 = S - (float)side; wtx0 = 0; ww = 256 + 2 * (float)side; }   /* (a submenu: 4:3, at the right, black beside it) */
         float cx0 = v->cw - 256, ctx0 = (float)side, cww = 256;   /* corner: the DS's picture at the right */
         big[0] = cx0 + (wx0 - cx0) * t; big[2] = cww + (ww - cww) * t;
         bigx[0] = ctx0 + (wtx0 - ctx0) * t; bigx[1] = big[2];
@@ -433,9 +444,10 @@ static void canvas_layout_for(GlPresent* v, int ww, int wh, int second) {
     if (!wide) { v->top[2] = v->bot[2] = 256; v->top[3] = v->bot[3] = 192; }
     if (corner) { v->top[2] = 256.0f / 3; v->top[3] = 64; }
     if (two || single) {                                         /* this window's screen: the bottom one in the first, unless swapped */
-        float* off = (second ? !g_swap : g_swap) ? v->bot : v->top;
+        int sw = g_swap != flip;
+        float* off = (second ? !sw : sw) ? v->bot : v->top;
         off[0] = off[1] = off[2] = off[3] = 0;
-    } else if (g_swap && !wide) {                                /* F9: the screens trade places */
+    } else if ((g_swap != flip) && !wide) {                                /* F9: the screens trade places */
         for (int i = 0; i < 4; i++) { float t = v->top[i]; v->top[i] = v->bot[i]; v->bot[i] = t; }
         for (int i = 0; i < 2; i++) { float t = v->topx[i]; v->topx[i] = v->botx[i]; v->botx[i] = t; }
     }
@@ -1437,6 +1449,10 @@ static void present_gl(void) {
             if (lg && on) fprintf(stderr, "ui f%llu scene %d win3d %d area3d %d area2d %d battle %d plain %d n %d bg2d %d\n", (unsigned long long)g_frame,
                                   g_ui_scene, g_ui_windows3d, g_ui_area3d, gl_ui_area(), g_ui_battle3d, g_ui_plain, g_ui_npoly, g_ui_bg2d); }
     }
+    {   static int lg = -1; static uint64_t last = ~0ull;                   /* tests: the overlays loaded, as they change */
+        if (lg < 0) lg = getenv("DQIX_OVLLOG") != NULL;
+        if (lg) { extern uint64_t overlays_loaded_mask(void); uint64_t m = overlays_loaded_mask();
+            if (m != last) { last = m; fprintf(stderr, "ovl f%llu:", (unsigned long long)g_frame); for (int i = 0; i < 64; i++) if (m >> i & 1) fprintf(stderr, " %d", i); fprintf(stderr, "\n"); } } }
     gl_compose((pow >> 15) & 1, pow & 1);
     wide_update((pow >> 15) & 1);
     hud_update((pow >> 15) & 1);

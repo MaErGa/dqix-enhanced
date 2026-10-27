@@ -106,6 +106,13 @@ int overlay_is_loaded(int id) {
     return o->loaded;
 }
 
+/* Which overlays are loaded now (bit per overlay id; ids up to 63). */
+uint64_t overlays_loaded_mask(void) {
+    uint64_t m = 0;
+    for (int i = 0; i < g_ovl_count && i < 64; i++) if (overlay_is_loaded(i)) m |= 1ull << i;
+    return m;
+}
+
 /* ---------------------------------------------------------------- emulated time
  * Generated code adds each instruction run's estimated ARM9 cycles to g_cyc
  * (g_cyc7 for the ARM7). At function entries and loop iterations, once
