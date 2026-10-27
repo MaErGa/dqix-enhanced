@@ -5,9 +5,21 @@ bottom with the version they arrived in.
 
 ## Next: v33
 
+- [ ] **An in-game menu** drawn by the game itself (Esc, or a controller
+      button): every option in a list over the game, easy with a controller.
+      The menu bar only exists on Windows, so this is what opens up Linux,
+      the Steam Deck and handhelds, and it gives controller players on
+      Windows a menu too.
+- [ ] **A first-launch choice**: "Like the DS" or "Enhanced (sharper 3D,
+      Basic Widescreen)", asked once on a new install, so new players find
+      what the project can do. Existing players keep their settings.
 - [ ] **Steering the boat with the stick** in any direction, like walking.
-- [ ] Dynamic Widescreen: the Zoom menu's smear (#16), and whatever the
-      play testing of v32 turns up.
+- [ ] **Screenshots (F12) as you see them**: the whole window as a PNG in a
+      `screenshots` folder, named by date and time (now: the DS's two
+      screens as BMPs, numbered from 0 again every launch).
+- [ ] **Dynamic Widescreen polish**: the Zoom menu's smear (#16), a flicker
+      after leaving the attribute points menu, and whatever the play
+      testing of v32 turns up.
 - [ ] The window light in the Upover inn flickers (#19; not on a DS).
 
 ## Then
@@ -20,13 +32,11 @@ bottom with the version they arrived in.
 The game already runs on Linux (every automated test is a Linux build);
 what's missing is everything around it.
 
-- [ ] **An in-game menu** drawn by the program (Esc, or both sticks clicked
-      on a controller): every option in a list over the game, easy with a
-      controller, like other recomps. Needed on the Steam Deck, Linux,
-      Android and handhelds like the Thor; also gives Mac a menu.
-- [ ] **Installing on Linux**: a script that checks the compiler and
-      libraries, builds the game from the cartridge file (build-game.sh)
-      and adds a desktop shortcut; the updater without `.bat` files.
+- [ ] (In v33, above.) **An in-game menu**: needed on the Steam Deck,
+      Linux, Android and handhelds like the Thor; also gives Mac a menu.
+- [ ] **Installing on Linux**: rakmahefa's AppImage builder (v32) builds
+      the game from your ROM; still to come: a desktop shortcut for the
+      game and the updater without `.bat` files.
 - [ ] **Steam Deck**: building without a compiler on SteamOS (a bundled
       toolchain for desktop mode, or build on any PC and copy over), adding
       it to Steam as a non-Steam game with a controller layout (the menu on
