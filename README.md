@@ -12,6 +12,36 @@ exactly like the original, and it can also do things the DS never could.
 **Join the community on Discord: https://discord.gg/CczgRv36NK** for help,
 news, and friends to play with.
 
+## Screenshots
+
+Left: the game as on the DS. Right: Enhanced mode with Dynamic Widescreen
+(Experimental), the 3D drawn at your monitor's resolution and wider than
+the DS's screen.
+
+<table>
+<tr><th>Like the DS</th><th>Enhanced, Dynamic Widescreen</th></tr>
+<tr>
+<td><img src="docs/images/ds-4.jpg" alt="The menu on the DS screens"></td>
+<td><img src="docs/images/enhanced-4.jpg" alt="The menu in Dynamic Widescreen"></td>
+</tr>
+<tr><td colspan="2">Exploring: the field fills the screen, the map stays in the top left, and the game's own windows move right, clear of it.</td></tr>
+<tr>
+<td><img src="docs/images/ds-3.jpg" alt="Choosing commands on the DS screens"></td>
+<td><img src="docs/images/enhanced-3.jpg" alt="Choosing commands in Dynamic Widescreen"></td>
+</tr>
+<tr><td colspan="2">Choosing commands: the party's panels stacked in the bottom left over the battle, see-through with solid lines.</td></tr>
+<tr>
+<td><img src="docs/images/ds-2.jpg" alt="An attack on the DS screens"></td>
+<td><img src="docs/images/enhanced-2.jpg" alt="An attack in Dynamic Widescreen"></td>
+</tr>
+<tr><td colspan="2">While the attacks play: each panel shrinks to the name and HP/MP, and the battle messages move clear of them.</td></tr>
+<tr>
+<td><img src="docs/images/ds-1.jpg" alt="Experience earned on the DS screens"></td>
+<td><img src="docs/images/enhanced-1.jpg" alt="Experience earned in Dynamic Widescreen"></td>
+</tr>
+<tr><td colspan="2">After the battle: the experience window big and see-through over the scene.</td></tr>
+</table>
+
 ## Features
 
 **The game as it was**
